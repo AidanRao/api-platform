@@ -1,0 +1,61 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "api-platform",
+  "main": "src/entry.ts",
+  "compatibility_date": "2026-09-10",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": true,
+  "preview_urls": true,
+  "vars": {
+    "TEAM_DOMAIN": "https://YOUR_TEAM.cloudflareaccess.com",
+    "ACCESS_AUD": "REPLACE_WITH_ACCESS_APPLICATION_AUD",
+    "ENVIRONMENT": "development",
+    "ACCESS_BYPASS_LOCAL": "false"
+  },
+  "kv_namespaces": [
+    {
+      "binding": "API_PLATFORM_KV"
+    }
+  ],
+  "assets": {
+    "binding": "ASSETS",
+    "not_found_handling": "none",
+    "html_handling": "auto-trailing-slash",
+    "run_worker_first": ["/api/*", "/admin/*"]
+  },
+  "observability": {
+    "logs": {
+      "enabled": true,
+      "invocation_logs": true
+    },
+    "traces": {
+      "enabled": true,
+      "head_sampling_rate": 0.01
+    }
+  },
+  "env": {
+    "production": {
+      "name": "api-platform",
+      "workers_dev": false,
+      "preview_urls": false,
+      "vars": {
+        "TEAM_DOMAIN": "https://aidanrao.cloudflareaccess.com",
+        "ACCESS_AUD": "2516483d362ddb370dae6ff3d397aa67a300729e6cb130423d73e20f76a7961a",
+        "ENVIRONMENT": "production",
+        "ACCESS_BYPASS_LOCAL": "false"
+      },
+      "kv_namespaces": [
+        {
+          "binding": "API_PLATFORM_KV",
+          "id": "ae082c6018fd43b0bb6c62dfe84219d7"
+        }
+      ],
+      "routes": [
+        {
+          "pattern": "api-platform.aidanrao.top",
+          "custom_domain": true
+        }
+      ]
+    }
+  }
+}
