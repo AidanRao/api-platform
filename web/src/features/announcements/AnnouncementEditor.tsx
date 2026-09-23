@@ -1,4 +1,4 @@
-import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
+import { useDeferredValue, useEffect, useMemo, useRef, useState, type ClipboardEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -47,6 +47,7 @@ function Editor({ initial, id }: { initial: Announcement | null; id: string }) {
   const [error, setError] = useState<unknown>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const textarea = useRef<HTMLTextAreaElement | null>(null);
+  const insertionCaret = useRef<number | null>(null);
   const contentRegistration = form.register("content");
   const preview = useDeferredValue(form.watch("content") ?? "");
   const saved = session.saved;
@@ -69,6 +70,13 @@ function Editor({ initial, id }: { initial: Announcement | null; id: string }) {
     } finally { setSession((previous) => previous); }
   } });
   const busy = mutation.isPending;
+  useEffect(() => {
+    if (!busy && insertionCaret.current !== null) {
+      textarea.current?.focus();
+      textarea.current?.setSelectionRange(insertionCaret.current, insertionCaret.current);
+      insertionCaret.current = null;
+    }
+  }, [busy]);
   function accept(value: Announcement) {
     form.reset(fields(value));
     setSession({ saved: value, draft: fields(value), conflict: false, latest: null });
@@ -81,22 +89,38 @@ function Editor({ initial, id }: { initial: Announcement | null; id: string }) {
     setNotice(saved?.status === "published" ? "公告已保存，修改已公开生效" : "公告已保存");
     if (!saved) { removeSession(); navigate(`${path}/${updated.id}`, { replace: true }); }
   }));
-  function upload(file: File, target: "content" | "cover" = "content") {
-    if (!["image/jpeg", "image/png", "image/webp", "image/gif"].includes(file.type)) { setError(new Error("仅支持 JPEG、PNG、WebP、GIF 图片")); return; }
-    if (file.size > 5 * 1024 * 1024) { setError(new Error("图片不能超过 5 MiB")); return; }
+  function upload(input: File | File[], target: "content" | "cover" = "content") {
+    if (busy) return;
+    const files = Array.isArray(input) ? input : [input];
+    for (const file of files) {
+      if (!["image/jpeg", "image/png", "image/webp", "image/gif"].includes(file.type)) { setError(new Error("仅支持 JPEG、PNG、WebP、GIF 图片")); return; }
+      if (file.size > 5 * 1024 * 1024) { setError(new Error("图片不能超过 5 MiB")); return; }
+    }
     const content = form.getValues("content") ?? "";
     const start = textarea.current?.selectionStart ?? content.length;
     const end = textarea.current?.selectionEnd ?? start;
     mutation.mutate(async () => {
-      const { url } = await uploadImage(file);
+      const urls: string[] = [];
+      for (const file of files) urls.push((await uploadImage(file)).url);
       if (target === "cover") {
-        form.setValue("coverUrl", url, { shouldDirty: true, shouldValidate: true });
+        form.setValue("coverUrl", urls[0]!, { shouldDirty: true, shouldValidate: true });
         setNotice("封面已上传，请保存公告");
         return;
       }
-      form.setValue("content", `${content.slice(0, start)}![图片](<${url}>)${content.slice(end)}`, { shouldDirty: true, shouldValidate: true });
+      const markdown = urls.map((url) => `![图片](<${url}>)`).join("\n");
+      insertionCaret.current = start + markdown.length;
+      form.setValue("content", `${content.slice(0, start)}${markdown}${content.slice(end)}`, { shouldDirty: true, shouldValidate: true });
       setNotice("图片已插入，请保存公告");
     });
+  }
+  function pasteImage(event: ClipboardEvent<HTMLTextAreaElement>) {
+    const images = Array.from(event.clipboardData.items)
+      .filter((item) => item.kind === "file" && item.type.startsWith("image/"))
+      .map((item) => item.getAsFile()).filter((file): file is File => file !== null);
+    const files = images.length ? images : Array.from(event.clipboardData.files).filter((file) => file.type.startsWith("image/"));
+    if (!files.length) return; // Preserve the browser's normal text paste behavior.
+    event.preventDefault();
+    upload(files);
   }
   return <div className="space-y-6">
     <Button asChild variant="ghost" className="-ml-3"><Link to={path}>← 返回公告列表</Link></Button>
@@ -119,7 +143,8 @@ function Editor({ initial, id }: { initial: Announcement | null; id: string }) {
           <p id="cover-error" role="alert" className="text-sm text-destructive">{form.formState.errors.coverUrl?.message}</p>
         </div>
         <div className="grid gap-6 xl:grid-cols-2">
-          <div className="space-y-3"><Label htmlFor="announcement-content">公告内容（Markdown）</Label><Textarea id="announcement-content" className="min-h-96 font-mono text-sm" {...contentRegistration} ref={(element) => { contentRegistration.ref(element); textarea.current = element; }} aria-invalid={!!form.formState.errors.content} aria-describedby="content-error" /><p id="content-error" role="alert" className="text-sm text-destructive">{form.formState.errors.content?.message}</p>
+          <div className="space-y-3"><Label htmlFor="announcement-content">公告内容（Markdown）</Label><Textarea onPaste={pasteImage} id="announcement-content" className="min-h-96 font-mono text-sm" {...contentRegistration} ref={(element) => { contentRegistration.ref(element); textarea.current = element; }} aria-invalid={!!form.formState.errors.content} aria-describedby="content-hint content-error" /><p id="content-error" role="alert" className="text-sm text-destructive">{form.formState.errors.content?.message}</p>
+            <p id="content-hint" className="text-sm text-muted-foreground">可直接粘贴图片，上传后自动插入正文。</p>
             <Label htmlFor="image-upload">上传图片</Label><Input id="image-upload" type="file" accept="image/jpeg,image/png,image/webp,image/gif" onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ""; if (file) upload(file); }} /></div>
           <Card className="min-w-0"><CardHeader><CardTitle>Markdown 预览</CardTitle></CardHeader><CardContent><MarkdownPreview content={preview} /></CardContent></Card>
         </div>

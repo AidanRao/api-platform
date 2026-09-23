@@ -74,6 +74,49 @@ describe("routed announcement management", () => {
     expect(textarea.value).toBe("![图片](<https://images.example.com/a.png>)原始内容");
     expect(writes()[1]?.[0]).toBe("/api/admin/media/images"); expect(writes()[1]?.[1]?.body).toBe(file);
   });
+  it("uploads pasted images in clipboard order and replaces the selection with Markdown", async () => {
+    renderAdmin(`${path}/one`);
+    const textarea = await screen.findByLabelText("公告内容（Markdown）") as HTMLTextAreaElement;
+    textarea.focus(); textarea.setSelectionRange(1, 3);
+    const files = [new File(["first"], "first.png", { type: "image/png" }), new File(["second"], "second.jpg", { type: "image/jpeg" })];
+    const allowed = fireEvent.paste(textarea, { clipboardData: { items: files.map((file) => ({ kind: "file", type: file.type, getAsFile: () => file })), files } });
+    expect(allowed).toBe(false);
+    await screen.findByText("图片已插入，请保存公告");
+    const markdown = "![图片](<https://images.example.com/a.png>)\n![图片](<https://images.example.com/a.png>)";
+    expect(textarea.value).toBe(`原${markdown}容`);
+    expect(writes().map(([, init]) => init?.body)).toEqual(files);
+    expect(writes().every(([url]) => url === "/api/admin/media/images")).toBe(true);
+    await waitFor(() => expect(textarea.selectionStart).toBe(1 + markdown.length));
+    expect(document.activeElement).toBe(textarea);
+  });
+  it("keeps the original text after a failed paste upload and allows pasting again", async () => {
+    uploadFails = true;
+    renderAdmin(`${path}/one`);
+    const textarea = await screen.findByLabelText("公告内容（Markdown）") as HTMLTextAreaElement;
+    const file = new File(["image"], "paste.png", { type: "image/png" });
+    const clipboardData = { items: [], files: [file] };
+    textarea.setSelectionRange(0, 0);
+    fireEvent.paste(textarea, { clipboardData });
+    await screen.findByText("图片上传失败，请稍后重试");
+    expect(textarea.value).toBe(item.content);
+    uploadFails = false;
+    fireEvent.paste(textarea, { clipboardData });
+    await screen.findByText("图片已插入，请保存公告");
+    expect(textarea.value).toBe(`![图片](<https://images.example.com/a.png>)${item.content}`);
+  });
+  it("preserves normal text paste and rejects invalid clipboard images without uploading", async () => {
+    const user = userEvent.setup(); renderAdmin(`${path}/one`);
+    const textarea = await screen.findByLabelText("公告内容（Markdown）") as HTMLTextAreaElement;
+    textarea.focus(); textarea.setSelectionRange(0, 0);
+    await user.paste("普通文字");
+    expect(textarea.value).toBe(`普通文字${item.content}`);
+    for (const file of [new File(["<svg/>"], "x.svg", { type: "image/svg+xml" }), new File([new Uint8Array(5 * 1024 * 1024 + 1)], "large.png", { type: "image/png" })]) {
+      fireEvent.paste(textarea, { clipboardData: { items: [], files: [file] } });
+    }
+    await screen.findByText("图片不能超过 5 MiB");
+    expect(textarea.value).toBe(`普通文字${item.content}`);
+    expect(writes()).toHaveLength(0);
+  });
   it("uploads a cover separately from Markdown, retains it on failure and saves removal", async () => {
     const user = userEvent.setup(); renderAdmin(`${path}/one`);
     const input = await screen.findByLabelText("公告封面（可选）");
