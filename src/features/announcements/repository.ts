@@ -1,7 +1,7 @@
 import type { Announcement, CreateAnnouncement, ListQuery } from "./schema";
 
 type Row = Omit<Announcement, "isPinned"> & { isPinned: number };
-const columns = `id, title, content, is_pinned AS isPinned, status,
+const columns = `id, title, content, cover_url AS coverUrl, is_pinned AS isPinned, status,
   published_at AS publishedAt, revision, created_at AS createdAt, updated_at AS updatedAt`;
 const decode = (row: Row): Announcement => ({ ...row, isPinned: row.isPinned === 1 });
 
@@ -29,16 +29,16 @@ export class AnnouncementRepository {
 
   async create(input: CreateAnnouncement, timestamp: string): Promise<Announcement> {
     const row = await this.db.prepare(`INSERT INTO announcements
-      (app_id, id, title, content, is_pinned, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING ${columns}`)
-      .bind(this.appId, crypto.randomUUID(), input.title, input.content, Number(input.isPinned), timestamp, timestamp).first<Row>();
+      (app_id, id, title, content, cover_url, is_pinned, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING ${columns}`)
+      .bind(this.appId, crypto.randomUUID(), input.title, input.content, input.coverUrl, Number(input.isPinned), timestamp, timestamp).first<Row>();
     if (!row) throw new Error("Announcement insert returned no row");
     return decode(row);
   }
 
   async update(value: Announcement, timestamp: string): Promise<Announcement | null> {
-    const row = await this.db.prepare(`UPDATE announcements SET title = ?, content = ?, is_pinned = ?, status = ?,
+    const row = await this.db.prepare(`UPDATE announcements SET title = ?, content = ?, cover_url = ?, is_pinned = ?, status = ?,
       published_at = ?, revision = revision + 1, updated_at = ? WHERE app_id = ? AND id = ? AND revision = ? RETURNING ${columns}`)
-      .bind(value.title, value.content, Number(value.isPinned), value.status, value.publishedAt, timestamp, this.appId, value.id, value.revision).first<Row>();
+      .bind(value.title, value.content, value.coverUrl, Number(value.isPinned), value.status, value.publishedAt, timestamp, this.appId, value.id, value.revision).first<Row>();
     return row ? decode(row) : null;
   }
 

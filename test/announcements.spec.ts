@@ -1,6 +1,7 @@
 import { env } from "cloudflare:workers";
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { Hono } from "hono";
+import coverMigration from "../migrations/0002_announcement_cover.sql?raw";
 import migration from "../migrations/0001_announcements.sql?raw";
 import { createApp } from "../src/app";
 import { APPS, defineApps } from "../src/apps/registry";
@@ -29,7 +30,7 @@ async function publish(item: Announcement) {
   return data(response);
 }
 beforeAll(async () => {
-  await env.API_PLATFORM_DB.batch(migration.split(";").filter((sql) => sql.trim()).map((sql) => env.API_PLATFORM_DB.prepare(sql)));
+  await env.API_PLATFORM_DB.batch((migration + coverMigration).split(";").filter((sql) => sql.trim()).map((sql) => env.API_PLATFORM_DB.prepare(sql)));
 });
 beforeEach(async () => {
   await env.API_PLATFORM_DB.prepare("DELETE FROM announcements").run();
@@ -54,13 +55,38 @@ describe("announcements API and D1", () => {
     item = await data(await request(`${admin}/${item.id}`, "PATCH", { revision: item.revision, title: "编辑后", content: "新正文" }));
     expect(item.status).toBe("published"); expect(item.publishedAt).toBe(first);
     const visible = await (await request(publicPath)).json() as { data: { items: unknown[] } };
-    expect(visible.data.items).toEqual([{ id: item.id, title: "编辑后", content: "新正文", publishedAt: first, isPinned: false }]);
+    expect(visible.data.items).toEqual([{ id: item.id, title: "编辑后", content: "新正文", publishedAt: first, isPinned: false, coverUrl: null }]);
     item = await data(await request(`${admin}/${item.id}/unpublish`, "POST", { revision: item.revision }));
     expect(item.status).toBe("unpublished");
     expect((await (await request(publicPath)).json() as { data: { total: number } }).data.total).toBe(0);
     item = await publish(item); expect(item.publishedAt).toBe(first);
     expect((await request(`${admin}/${item.id}`, "DELETE", { revision: item.revision })).status).toBe(200);
     expect((await request(`${admin}/${item.id}`)).status).toBe(404);
+  });
+  it("stores, publishes, replaces and removes image covers with revision protection", async () => {
+    const bindings = Object.assign(Object.create(env) as Env, { OSS_BUCKET: "examplebucket", OSS_REGION: "cn-hangzhou", OSS_PREFIX: "api-platform" });
+    const invoke = (path: string, method: string, body?: unknown) => app.request(`https://example.com${path}`, { method, headers: { "Content-Type": "application/json" }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) }, bindings);
+    const coverUrl = "https://examplebucket.oss-cn-hangzhou.aliyuncs.com/api-platform/images/12345678-1234-4234-8234-123456789abc.png";
+    let item = await data(await invoke(admin, "POST", { title: "带封面", content: "正文", coverUrl }));
+    expect(item.coverUrl).toBe(coverUrl);
+    expect((await data(await invoke(`${admin}/${item.id}`, "GET"))).coverUrl).toBe(coverUrl);
+    item = await data(await invoke(`${admin}/${item.id}/publish`, "POST", { revision: item.revision }));
+    const visible = await (await invoke(publicPath, "GET")).json() as { data: { items: Announcement[] } };
+    expect(visible.data.items[0]?.coverUrl).toBe(coverUrl);
+    const replacement = coverUrl.replace(".png", ".webp");
+    const previousRevision = item.revision;
+    item = await data(await invoke(`${admin}/${item.id}`, "PATCH", { revision: item.revision, coverUrl: replacement }));
+    expect(item.coverUrl).toBe(replacement);
+    expect((await invoke(`${admin}/${item.id}`, "PATCH", { revision: previousRevision, coverUrl: null })).status).toBe(409);
+    item = await data(await invoke(`${admin}/${item.id}`, "PATCH", { revision: item.revision, title: "保留封面" }));
+    expect(item.coverUrl).toBe(replacement);
+    item = await data(await invoke(`${admin}/${item.id}`, "PATCH", { revision: item.revision, coverUrl: null }));
+    expect(item.coverUrl).toBeNull();
+    for (const invalid of ["not a URL", "javascript:alert(1)", coverUrl.replace(".png", ".mp4"), coverUrl.replace(".png", ".svg"), coverUrl.replace("examplebucket", "otherbucket"), coverUrl + "?signature=x", coverUrl.replace("/images/", "/documents/"), "https://example.com/image.png"]) {
+      expect((await invoke(admin, "POST", { title: "无效封面", coverUrl: invalid })).status).toBe(400);
+      expect((await invoke(`${admin}/${item.id}`, "PATCH", { revision: item.revision, coverUrl: invalid })).status).toBe(400);
+    }
+    expect((await create()).coverUrl).toBeNull();
   });
   it("sorts pinned first then newest and supports stable pages and filtered totals", async () => {
     const oldPinned = await publish(await create("旧置顶", "正文", true));
@@ -110,7 +136,7 @@ describe("announcements API and D1", () => {
   });
 
   it("isolates shared routes and all mutations by application, including existing foreign IDs", async () => {
-    const foreign = await new AnnouncementRepository(env.API_PLATFORM_DB, "other-app").create({ title: "其他应用", content: "secret", isPinned: false }, now.toISOString());
+    const foreign = await new AnnouncementRepository(env.API_PLATFORM_DB, "other-app").create({ title: "其他应用", content: "secret", isPinned: false, coverUrl: null }, now.toISOString());
     for (const [suffix, method] of [["", "GET"], ["", "PATCH"], ["/publish", "POST"], ["/unpublish", "POST"], ["", "DELETE"]]) {
       expect((await request(`${admin}/${foreign.id}${suffix}`, method, method === "GET" ? undefined : { revision: 1, ...(method === "PATCH" ? { title: "越权" } : {}) })).status).toBe(404);
     }

@@ -7,7 +7,7 @@ import { renderAdmin, ok, fail } from "../../test-utils";
 import { resourceKey } from "../../platform/query";
 const base = "/api/admin/buaa-classhopper/announcement";
 const path = "/admin/buaa-classhopper/announcements";
-const item: Announcement = { id: "one", title: "原始公告", content: "原始内容", isPinned: false, status: "draft", revision: 1, publishedAt: null, createdAt: "2026-09-22T08:00:00.000Z", updatedAt: "2026-09-22T08:00:00.000Z" };
+const item: Announcement = { id: "one", title: "原始公告", content: "原始内容", coverUrl: null, isPinned: false, status: "draft", revision: 1, publishedAt: null, createdAt: "2026-09-22T08:00:00.000Z", updatedAt: "2026-09-22T08:00:00.000Z" };
 let current: Announcement;
 let conflict: boolean;
 let uploadFails: boolean;
@@ -42,7 +42,7 @@ describe("routed announcement management", () => {
     await user.click(screen.getByRole("button", { name: "保存草稿" }));
     await screen.findByRole("heading", { name: "编辑公告" });
     expect(router.state.location.pathname).toBe(`${path}/one`);
-    expect(JSON.parse(writes()[0]?.[1]?.body as string)).toEqual({ title: item.title, content: item.content, isPinned: false });
+    expect(JSON.parse(writes()[0]?.[1]?.body as string)).toEqual({ title: item.title, content: item.content, isPinned: false, coverUrl: null });
     await user.click(screen.getByRole("button", { name: "发布" })); await screen.findByText("公告已发布");
     expect(writes()[1]?.[0]).toBe(`${base}/one/publish`);
     expect(JSON.parse(writes()[1]?.[1]?.body as string)).toEqual({ revision: 1 });
@@ -73,6 +73,31 @@ describe("routed announcement management", () => {
     await user.upload(screen.getByLabelText("上传图片"), file); await screen.findByText("图片已插入，请保存公告");
     expect(textarea.value).toBe("![图片](<https://images.example.com/a.png>)原始内容");
     expect(writes()[1]?.[0]).toBe("/api/admin/media/images"); expect(writes()[1]?.[1]?.body).toBe(file);
+  });
+  it("uploads a cover separately from Markdown, retains it on failure and saves removal", async () => {
+    const user = userEvent.setup(); renderAdmin(`${path}/one`);
+    const input = await screen.findByLabelText("公告封面（可选）");
+    const file = new File([new Uint8Array([137,80,78,71])], "cover.png", { type: "image/png" });
+    await user.upload(input, file);
+    await screen.findByText("封面已上传，请保存公告");
+    expect(screen.getByRole("img", { name: "公告封面预览" }).getAttribute("src")).toBe("https://images.example.com/a.png");
+    expect((screen.getByLabelText("公告内容（Markdown）") as HTMLTextAreaElement).value).toBe(item.content);
+    uploadFails = true;
+    await user.upload(input, file); await screen.findByText("图片上传失败，请稍后重试");
+    expect(screen.getByRole("img", { name: "公告封面预览" })).not.toBeNull();
+    await user.click(screen.getByRole("button", { name: "保存公告" })); await screen.findByText("公告已保存");
+    expect(current.coverUrl).toBe("https://images.example.com/a.png");
+    await user.click(screen.getByRole("button", { name: "移除封面" }));
+    await user.click(screen.getByRole("button", { name: "保存公告" }));
+    await waitFor(() => expect(current.coverUrl).toBeNull());
+    expect(screen.queryByRole("img", { name: "公告封面预览" })).toBeNull();
+  });
+  it("rejects non-image cover files before sending an upload", async () => {
+    renderAdmin(`${path}/new`);
+    const input = await screen.findByLabelText("公告封面（可选）");
+    fireEvent.change(input, { target: { files: [new File(["video"], "video.mp4", { type: "video/mp4" })] } });
+    expect(await screen.findByText("仅支持 JPEG、PNG、WebP、GIF 图片")).not.toBeNull();
+    expect(writes()).toHaveLength(0);
   });
   it("stores pagination in the URL and preserves drafts through same-app navigation and history", async () => {
     const user = userEvent.setup(); const { router } = renderAdmin(`${path}?page=2&status=draft`);
