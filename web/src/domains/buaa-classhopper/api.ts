@@ -2,7 +2,7 @@ import {
   accessPolicySchema,
   type AccessPolicy,
   type AccessPolicyPatch,
-} from "../../src/domains/buaa-classhopper/access-policy.schema";
+} from "../../../../src/domains/buaa-classhopper/access-policy.schema";
 
 const PUBLIC_POLICY_URL = "/api/buaa-classhopper/v1/iclass/access-policy";
 const ADMIN_POLICY_URL = "/api/admin/buaa-classhopper/v1/iclass/access-policy";

@@ -1,7 +1,7 @@
 import type {
   AccessPolicy,
   AccessPolicyPatch,
-} from "../../src/domains/buaa-classhopper/access-policy.schema";
+} from "../../../../src/domains/buaa-classhopper/access-policy.schema";
 
 export type PolicyField = "studentIds" | "names";
 

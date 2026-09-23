@@ -2,6 +2,7 @@ import { env } from "cloudflare:workers";
 import { describe, expect, it, vi } from "vitest";
 
 import { createApp } from "../src/app";
+import { APPS, defineApps } from "../src/apps/registry";
 
 const authenticated = async () => ({
   email: "admin@example.com",
@@ -37,12 +38,22 @@ describe("administrator static assets", () => {
     expect(response.headers.get("Content-Security-Policy")).toContain(
       "frame-ancestors 'none'",
     );
-    expect(response.headers.get("Content-Security-Policy")).not.toContain(
-      "'unsafe-inline'",
-    );
+    expect(response.headers.get("Content-Security-Policy")).toContain("script-src 'self';");
+    expect(response.headers.get("Content-Security-Policy")).toContain("style-src 'self' 'unsafe-inline'");
     expect(new URL(assetFetch.mock.calls[0]?.[0].url).pathname).toBe(
-      "/admin/buaa-classhopper/",
+      "/admin/",
     );
+  });
+
+  it("allows only the configured bucket origin in the administrator CSP", async () => {
+    const bindings = Object.assign(Object.create(env) as Env, {
+      OSS_BUCKET: "examplebucket",
+      OSS_REGION: "cn-hangzhou",
+      ASSETS: { fetch: vi.fn().mockResolvedValue(new Response("<html></html>")) },
+    });
+    const response = await createApp(authenticated).request("https://example.com/admin/buaa-classhopper/", undefined, bindings);
+    expect(response.headers.get("Content-Security-Policy")).toContain("img-src 'self' data: https://examplebucket.oss-cn-hangzhou.aliyuncs.com");
+    expect(response.headers.get("Content-Security-Policy")).not.toContain("img-src *");
   });
 
   it("bypasses Access only in the local development environment", async () => {
@@ -85,6 +96,30 @@ describe("administrator static assets", () => {
     );
   });
 
+  it("serves the same shell for another registered app, without a per-app HTML file", async () => {
+    const assetFetch = vi.fn().mockResolvedValue(new Response("<html>Shared shell</html>"));
+    const bindings = Object.assign(Object.create(env) as Env, { ASSETS: { fetch: assetFetch } });
+    const apps = defineApps([...APPS, { id: "second-app", name: "Second App" }]);
+    const application = createApp(authenticated, undefined, apps);
+    expect((await application.request("https://example.com/admin/second-app/", undefined, bindings)).status).toBe(200);
+    expect(new URL(assetFetch.mock.calls[0]?.[0].url).pathname).toBe("/admin/");
+    for (const path of ["/admin/not-registered/", "/admin/index.html", "/admin/second-app/extra", "/admin/second-app/whitelist"]) {
+      expect((await application.request(`https://example.com${path}`, undefined, bindings)).status).toBe(404);
+    }
+    expect(assetFetch).toHaveBeenCalledTimes(1);
+    for (const path of ["/admin/", "/admin/second-app/announcements", "/admin/second-app/announcements/new", "/admin/second-app/announcements/test-id"]) {
+      expect((await application.request(`https://example.com${path}`, undefined, bindings)).status).toBe(200);
+      expect(new URL(assetFetch.mock.calls.at(-1)?.[0].url).pathname).toBe("/admin/");
+    }
+  });
+
+  it("preserves missing static asset responses instead of returning HTML", async () => {
+    const response = await requestAsset("/admin/assets/missing.js", vi.fn().mockResolvedValue(new Response("Not Found", { status: 404 })));
+    expect(response.status).toBe(404);
+    expect(response.headers.get("Cache-Control")).toBe("no-store");
+    expect(await response.text()).toBe("Not Found");
+  });
+
   it("does not fall back to the management HTML for unknown paths", async () => {
     const assetFetch = vi.fn();
     const response = await requestAsset("/admin/unknown.js", assetFetch);
@@ -98,6 +133,7 @@ describe("administrator static assets", () => {
 async function requestAsset(path: string, assetFetch: ReturnType<typeof vi.fn>) {
   const bindings = Object.assign(Object.create(env) as Env, {
     ASSETS: { fetch: assetFetch },
+    ENVIRONMENT: "production",
   });
   return createApp(authenticated).request(
     `https://example.com${path}`,

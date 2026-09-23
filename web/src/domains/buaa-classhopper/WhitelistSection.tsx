@@ -1,6 +1,10 @@
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useId, useState, type FormEvent } from "react";
 
-import type { AccessPolicy } from "../../src/domains/buaa-classhopper/access-policy.schema";
+import type { AccessPolicy } from "../../../../src/domains/buaa-classhopper/access-policy.schema";
 import type { PolicyDraft, PolicyField } from "./draft";
 
 interface WhitelistSectionProps {
@@ -41,18 +45,18 @@ export function WhitelistSection({
   }
 
   return (
-    <section className="panel" aria-labelledby={`${inputId}-title`}>
-      <div className="panel-heading">
+    <Card aria-labelledby={`${inputId}-title`}>
+      <CardHeader>
         <div>
-          <h2 id={`${inputId}-title`}>{title}</h2>
+          <CardTitle id={`${inputId}-title`}>{title}</CardTitle>
           <p>{policy[field].length} 个当前项目</p>
         </div>
-      </div>
-
-      <form className="add-form" onSubmit={submit}>
-        <label htmlFor={inputId}>{inputLabel}</label>
-        <div className="input-row">
-          <input
+      </CardHeader>
+      <CardContent>
+      <form className="space-y-2" onSubmit={submit}>
+        <Label htmlFor={inputId}>{inputLabel}</Label>
+        <div className="flex gap-2">
+          <Input
             id={inputId}
             value={value}
             onChange={(event) => {
@@ -64,47 +68,48 @@ export function WhitelistSection({
             aria-invalid={error !== null}
             aria-describedby={error === null ? undefined : errorId}
           />
-          <button className="secondary" type="submit" disabled={disabled}>
+          <Button variant="outline" size="sm"  type="submit" disabled={disabled}>
             新增
-          </button>
+          </Button>
         </div>
-        <p id={errorId} className="field-error" aria-live="polite">
+        <p id={errorId} className="min-h-5 text-sm text-destructive" aria-live="polite">
           {error ?? "\u00a0"}
         </p>
       </form>
 
-      <ul className="item-list" aria-label={`${title}当前项目`}>
+      <ul className="divide-y" aria-label={`${title}当前项目`}>
         {policy[field].map((item) => {
           const pendingRemoval = draft.remove[field].includes(item);
           return (
-            <li className={pendingRemoval ? "pending-removal" : undefined} key={item}>
+            <li className={`flex items-center justify-between gap-3 py-3 ${pendingRemoval ? "text-muted-foreground line-through" : ""}`} key={item}>
               <span>{item}</span>
               {pendingRemoval ? (
-                <button type="button" onClick={() => onUndo(field, item)} disabled={disabled}>
+                <Button variant="outline" size="sm" type="button" onClick={() => onUndo(field, item)} disabled={disabled}>
                   撤销删除
-                </button>
+                </Button>
               ) : (
-                <button type="button" onClick={() => onRemove(field, item)} disabled={disabled}>
+                <Button variant="outline" size="sm" type="button" onClick={() => onRemove(field, item)} disabled={disabled}>
                   删除
-                </button>
+                </Button>
               )}
             </li>
           );
         })}
         {draft.add[field].map((item) => (
-          <li className="pending-addition" key={`add-${item}`}>
+          <li className="flex items-center justify-between gap-3 py-3" key={`add-${item}`}>
             <span>
               {item} <small>待新增</small>
             </span>
-            <button type="button" onClick={() => onRemove(field, item)} disabled={disabled}>
+            <Button variant="outline" size="sm" type="button" onClick={() => onRemove(field, item)} disabled={disabled}>
               撤销新增
-            </button>
+            </Button>
           </li>
         ))}
         {policy[field].length === 0 && draft.add[field].length === 0 ? (
-          <li className="empty-item">暂无项目</li>
+          <li className="py-8 text-center text-sm text-muted-foreground">暂无项目</li>
         ) : null}
       </ul>
-    </section>
+      </CardContent>
+    </Card>
   );
 }

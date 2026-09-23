@@ -1,4 +1,5 @@
 import { cloudflare } from "@cloudflare/vite-plugin";
+import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import { resolve } from "node:path";
 import { defineConfig } from "vite";
@@ -8,8 +9,10 @@ export default defineConfig(({ command, mode }) => {
   return {
     root: "web",
     base: "/",
+    resolve: { alias: { "@": resolve(import.meta.dirname, "web/src") } },
     plugins: [
       react(),
+      tailwindcss(),
       cloudflare({
         configPath: resolve(import.meta.dirname, "wrangler.jsonc"),
         persistState: {
@@ -29,7 +32,7 @@ export default defineConfig(({ command, mode }) => {
       rollupOptions: {
         input: resolve(
           import.meta.dirname,
-          "web/admin/buaa-classhopper/index.html",
+          "web/admin/index.html",
         ),
       },
     },
