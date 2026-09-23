@@ -6,6 +6,7 @@ import type { AppEnv } from "../../http/types";
 import { ossBucketOrigin } from "../../infrastructure/oss";
 import { ApiError } from "../../http/errors";
 import { AnnouncementRepository } from "./repository";
+import type { Announcement } from "./schema";
 import { adminQuerySchema, createSchema, paginationSchema, patchSchema, revisionSchema } from "./schema";
 import { mutateAnnouncement, requireAnnouncement } from "./service";
 
@@ -33,13 +34,22 @@ function audit(c: Context<AppEnv>, appId: string, action: string, id: string, re
   const actor = c.get("accessIdentity");
   console.log(JSON.stringify({ message: "announcement changed", appId, action, id, revision, actorSubject: actor.subject, actorEmail: actor.email }));
 }
+function publicAnnouncement({ id, title, content, publishedAt, isPinned, coverUrl }: Announcement) {
+  return { id, title, content, publishedAt, isPinned, coverUrl };
+}
 export function createPublicAnnouncementRoutes(appId: string) {
   const routes = baseRoutes();
   routes.get("/", zValidator("query", paginationSchema, (result) => { if (!result.success) return invalid(); }), async (c) => {
     const page = await repository(c, appId).list({ ...c.req.valid("query"), status: "published" });
-    return successResponse("获取成功", { ...page, items: page.items.map(({ id, title, content, publishedAt, isPinned, coverUrl }) => ({ id, title, content, publishedAt, isPinned, coverUrl })) });
+    return successResponse("获取成功", { ...page, items: page.items.map(publicAnnouncement) });
+  });
+  routes.get("/:id", async (c) => {
+    const value = await requireAnnouncement(repository(c, appId), c.req.param("id"));
+    if (value.status !== "published") throw new ApiError("公告不存在", 404);
+    return successResponse("获取成功", publicAnnouncement(value));
   });
   routes.all("/", () => methodNotAllowed("GET"));
+  routes.all("/:id", () => methodNotAllowed("GET"));
   return routes;
 }
 export function createAdminAnnouncementRoutes(appId: string, now: () => Date) {

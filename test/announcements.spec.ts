@@ -73,6 +73,7 @@ describe("announcements API and D1", () => {
     item = await data(await invoke(`${admin}/${item.id}/publish`, "POST", { revision: item.revision }));
     const visible = await (await invoke(publicPath, "GET")).json() as { data: { items: Announcement[] } };
     expect(visible.data.items[0]?.coverUrl).toBe(coverUrl);
+    expect((await data(await invoke(`${publicPath}/${item.id}`, "GET"))).coverUrl).toBe(coverUrl);
     const replacement = coverUrl.replace(".png", ".webp");
     const previousRevision = item.revision;
     item = await data(await invoke(`${admin}/${item.id}`, "PATCH", { revision: item.revision, coverUrl: replacement }));
@@ -87,6 +88,36 @@ describe("announcements API and D1", () => {
       expect((await invoke(`${admin}/${item.id}`, "PATCH", { revision: item.revision, coverUrl: invalid })).status).toBe(400);
     }
     expect((await create()).coverUrl).toBeNull();
+  });
+  it("serves anonymous detail with exactly the public list fields and hides non-public records", async () => {
+    const anonymous = createApp(undefined, () => now, defineApps([...APPS, { id: "other-app", name: "Other" }]));
+    const get = (path: string, method = "GET") => anonymous.request(`https://example.com${path}`, { method }, env);
+    let item = await create();
+    const path = `${publicPath}/${item.id}`;
+    const expectHidden = async (url: string) => {
+      const response = await get(url);
+      expect(response.status).toBe(404);
+      expect(response.headers.get("Cache-Control")).toBe("no-store");
+      expect(await response.json()).toEqual({ code: 0, msg: "公告不存在", data: null });
+    };
+    await expectHidden(path);
+    item = await publish(item);
+    const response = await get(path);
+    expect(response.status).toBe(200);
+    expect(response.headers.get("Cache-Control")).toBe("no-store");
+    const list = await (await get(publicPath)).json() as { data: { items: unknown[] } };
+    expect(await response.json()).toEqual({ code: 1, msg: "获取成功", data: list.data.items[0] });
+    await expectHidden(`/api/other-app/announcement/${item.id}`);
+    await expectHidden(`${publicPath}/missing`);
+    expect((await get(`/api/unknown/announcement/${item.id}`)).status).toBe(404);
+    const unsupported = await get(path, "POST");
+    expect(unsupported.status).toBe(405); expect(unsupported.headers.get("Allow")).toBe("GET");
+    item = await data(await request(`${admin}/${item.id}/unpublish`, "POST", { revision: item.revision }));
+    await expectHidden(path);
+    item = await publish(item);
+    expect((await get(path)).status).toBe(200);
+    await request(`${admin}/${item.id}`, "DELETE", { revision: item.revision });
+    await expectHidden(path);
   });
   it("sorts pinned first then newest and supports stable pages and filtered totals", async () => {
     const oldPinned = await publish(await create("旧置顶", "正文", true));
