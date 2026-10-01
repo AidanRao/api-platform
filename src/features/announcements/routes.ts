@@ -7,7 +7,7 @@ import { ossBucketOrigin } from "../../infrastructure/oss";
 import { ApiError } from "../../http/errors";
 import { AnnouncementRepository } from "./repository";
 import type { Announcement } from "./schema";
-import { adminQuerySchema, createSchema, paginationSchema, patchSchema, revisionSchema } from "./schema";
+import { adminQuerySchema, createSchema, paginationSchema, patchSchema, revisionSchema, tagQuerySchema } from "./schema";
 import { mutateAnnouncement, requireAnnouncement } from "./service";
 
 const invalid = () => errorResponse("请求数据格式错误", 400);
@@ -34,8 +34,8 @@ function audit(c: Context<AppEnv>, appId: string, action: string, id: string, re
   const actor = c.get("accessIdentity");
   console.log(JSON.stringify({ message: "announcement changed", appId, action, id, revision, actorSubject: actor.subject, actorEmail: actor.email }));
 }
-function publicAnnouncement({ id, title, content, publishedAt, isPinned, coverUrl }: Announcement) {
-  return { id, title, content, publishedAt, isPinned, coverUrl };
+function publicAnnouncement({ id, title, content, publishedAt, isPinned, coverUrl, tags }: Announcement) {
+  return { id, title, content, publishedAt, isPinned, coverUrl, tags };
 }
 export function createPublicAnnouncementRoutes(appId: string) {
   const routes = baseRoutes();
@@ -43,6 +43,8 @@ export function createPublicAnnouncementRoutes(appId: string) {
     const page = await repository(c, appId).list({ ...c.req.valid("query"), status: "published" });
     return successResponse("获取成功", { ...page, items: page.items.map(publicAnnouncement) });
   });
+  routes.get("/tags", async (c) => successResponse("获取成功", await repository(c, appId).tags("published")));
+  routes.all("/tags", () => methodNotAllowed("GET"));
   routes.get("/:id", async (c) => {
     const value = await requireAnnouncement(repository(c, appId), c.req.param("id"));
     if (value.status !== "published") throw new ApiError("公告不存在", 404);
@@ -62,6 +64,9 @@ export function createAdminAnnouncementRoutes(appId: string, now: () => Date) {
     audit(c, appId, "create", value.id, value.revision);
     return successResponse("草稿已创建", value, 201);
   });
+  routes.get("/tags", zValidator("query", tagQuerySchema, (result) => { if (!result.success) return invalid(); }), async (c) =>
+    successResponse("获取成功", await repository(c, appId).tags(c.req.valid("query").status)));
+  routes.all("/tags", () => methodNotAllowed("GET"));
   routes.get("/:id", async (c) => successResponse("获取成功", await requireAnnouncement(repository(c, appId), c.req.param("id"))));
   routes.patch("/:id", jsonLimit, zValidator("json", patchSchema, (result) => { if (!result.success) return invalid(); }), async (c) => {
     const input = c.req.valid("json");

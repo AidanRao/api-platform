@@ -7,7 +7,7 @@ import { renderAdmin, ok, fail } from "../../test-utils";
 import { resourceKey } from "../../platform/query";
 const base = "/api/admin/buaa-classhopper/announcement";
 const path = "/admin/buaa-classhopper/announcements";
-const item: Announcement = { id: "one", title: "原始公告", content: "原始内容", coverUrl: null, isPinned: false, status: "draft", revision: 1, publishedAt: null, createdAt: "2026-09-22T08:00:00.000Z", updatedAt: "2026-09-22T08:00:00.000Z" };
+const item: Announcement = { id: "one", title: "原始公告", content: "原始内容", coverUrl: null, tags: [], isPinned: false, status: "draft", revision: 1, publishedAt: null, createdAt: "2026-09-22T08:00:00.000Z", updatedAt: "2026-09-22T08:00:00.000Z" };
 let current: Announcement;
 let conflict: boolean;
 let uploadFails: boolean;
@@ -15,6 +15,7 @@ let deleted: boolean;
 beforeEach(() => {
   current = { ...item }; conflict = false; uploadFails = false; deleted = false;
   vi.stubGlobal("fetch", vi.fn(async (input: string, init?: RequestInit) => {
+    if (input.includes("/announcement/tags")) return ok({ items: [{ tag: "学习,生活", count: 3 }, { tag: "更新", count: 2 }] });
     if (input === "/api/admin/media/images") return uploadFails ? fail(502, "图片上传失败，请稍后重试") : ok({ url: "https://images.example.com/a.png" });
     if (input === base && init?.method === "POST") { current = { ...item, ...JSON.parse(init.body as string) }; return ok(current); }
     if (input === `${base}/one` && init?.method === "PATCH") {
@@ -42,7 +43,7 @@ describe("routed announcement management", () => {
     await user.click(screen.getByRole("button", { name: "保存草稿" }));
     await screen.findByRole("heading", { name: "编辑公告" });
     expect(router.state.location.pathname).toBe(`${path}/one`);
-    expect(JSON.parse(writes()[0]?.[1]?.body as string)).toEqual({ title: item.title, content: item.content, isPinned: false, coverUrl: null });
+    expect(JSON.parse(writes()[0]?.[1]?.body as string)).toEqual({ title: item.title, content: item.content, isPinned: false, coverUrl: null, tags: [] });
     await user.click(screen.getByRole("button", { name: "发布" })); await screen.findByText("公告已发布");
     expect(writes()[1]?.[0]).toBe(`${base}/one/publish`);
     expect(JSON.parse(writes()[1]?.[1]?.body as string)).toEqual({ revision: 1 });
@@ -116,6 +117,60 @@ describe("routed announcement management", () => {
     await screen.findByText("图片不能超过 5 MiB");
     expect(textarea.value).toBe(`普通文字${item.content}`);
     expect(writes()).toHaveLength(0);
+  });
+  it("edits multiple string tags, preserves them through navigation and saves clearing", async () => {
+    const user = userEvent.setup(); const { router } = renderAdmin(`${path}/one`);
+    await user.click(await screen.findByRole("button", { name: "添加标签" }));
+    await user.type(screen.getByLabelText("标签 1"), " 更新 ");
+    await user.click(screen.getByRole("button", { name: "添加标签" }));
+    await user.type(screen.getByLabelText("标签 2"), "学习,生活");
+    await act(() => router.navigate(path));
+    await user.click(await screen.findByRole("link", { name: item.title }));
+    expect((await screen.findByLabelText("标签 2") as HTMLInputElement).value).toBe("学习,生活");
+    await user.click(screen.getByRole("button", { name: "保存公告" })); await screen.findByText("公告已保存");
+    expect(current.tags).toEqual(["更新", "学习,生活"]);
+    await user.click(screen.getByRole("button", { name: "移除标签 1" }));
+    expect((screen.getByLabelText("标签 1") as HTMLInputElement).value).toBe("学习,生活");
+    await user.click(screen.getByRole("button", { name: "移除标签 1" }));
+    await user.click(screen.getByRole("button", { name: "保存公告" }));
+    await waitFor(() => expect(current.tags).toEqual([]));
+  });
+  it("keeps tag filters in pagination and browser history", async () => {
+    const user = userEvent.setup(); const { router } = renderAdmin(`${path}?status=draft`);
+    await user.click(await screen.findByRole("button", { name: "学习,生活（3）" }));
+    await waitFor(() => expect(vi.mocked(fetch).mock.calls.some(([url]) => String(url).includes("&tag=" + encodeURIComponent("学习,生活")))).toBe(true));
+    await user.click(await screen.findByRole("button", { name: "下一页" }));
+    expect(new URLSearchParams(router.state.location.search).get("tag")).toBe("学习,生活");
+    expect(new URLSearchParams(router.state.location.search).get("status")).toBe("draft");
+    await user.click(screen.getByRole("button", { name: "全部" }));
+    expect(new URLSearchParams(router.state.location.search).has("tag")).toBe(false);
+    await act(() => router.navigate(-1));
+    expect(screen.getByRole("button", { name: "学习,生活（3）" }).getAttribute("aria-pressed")).toBe("true");
+  });
+  it("selects directory tags and all, resetting pagination while retaining status", async () => {
+    const user = userEvent.setup(); const { router } = renderAdmin(`${path}?status=draft&page=2`);
+    await user.click(await screen.findByRole("button", { name: "学习,生活（3）" }));
+    expect(new URLSearchParams(router.state.location.search).get("page")).toBe("1");
+    expect(new URLSearchParams(router.state.location.search).get("status")).toBe("draft");
+    expect(new URLSearchParams(router.state.location.search).get("tag")).toBe("学习,生活");
+    expect(screen.getByRole("button", { name: "学习,生活（3）" }).getAttribute("aria-pressed")).toBe("true");
+    expect(vi.mocked(fetch).mock.calls.some(([url]) => String(url) === `${base}/tags?status=draft`)).toBe(true);
+    await user.click(screen.getByRole("button", { name: "全部" }));
+    expect(new URLSearchParams(router.state.location.search).has("tag")).toBe(false);
+    await act(() => router.navigate(`${path}?status=published`));
+    await waitFor(() => expect(vi.mocked(fetch).mock.calls.some(([url]) => String(url) === `${base}/tags?status=published`)).toBe(true));
+  });
+  it("keeps announcements visible when tags fail and retries the directory independently", async () => {
+    const original = vi.mocked(fetch).getMockImplementation()!;
+    let tagsFail = true;
+    vi.mocked(fetch).mockImplementation((input, init) => String(input).includes("/announcement/tags") && tagsFail ? Promise.resolve(fail(503, "标签暂不可用")) : original(input, init));
+    const user = userEvent.setup(); renderAdmin(path);
+    await screen.findByText("标签暂不可用");
+    expect(screen.getByRole("link", { name: item.title })).toBeTruthy();
+    tagsFail = false;
+    await user.click(screen.getByRole("button", { name: "重试加载标签" }));
+    await screen.findByRole("button", { name: "更新（2）" });
+    expect(screen.queryByText("标签暂不可用")).toBeNull();
   });
   it("uploads a cover separately from Markdown, retains it on failure and saves removal", async () => {
     const user = userEvent.setup(); renderAdmin(`${path}/one`);

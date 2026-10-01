@@ -23,6 +23,7 @@ export async function mutateAnnouncement(
   }
   const next = { ...current };
   if (action === "patch" && patch) {
+    if (patch.tags !== undefined) next.tags = patch.tags;
     if (patch.coverUrl !== undefined) next.coverUrl = patch.coverUrl;
     if (patch.title !== undefined) next.title = patch.title;
     if (patch.content !== undefined) next.content = patch.content;

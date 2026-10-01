@@ -13,8 +13,10 @@ const policy: AccessPolicy = {
   names: ["张三", "李四"],
 };
 
+let requestMock = vi.fn<typeof fetch>();
 beforeEach(() => {
-  vi.stubGlobal("fetch", vi.fn());
+  requestMock = vi.fn<typeof fetch>();
+  vi.stubGlobal("fetch", (input: RequestInfo | URL, init?: RequestInit) => String(input).includes("/announcement/tags") ? Promise.resolve(ok({ items: [] })) : requestMock(input, init));
 });
 
 afterEach(() => {
@@ -207,7 +209,7 @@ describe("whitelist management page", () => {
 });
 
 function mockFetch() {
-  return vi.mocked(globalThis.fetch);
+  return requestMock;
 }
 
 function policyResponse(data: AccessPolicy, msg = "获取成功") {

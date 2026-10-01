@@ -1,6 +1,7 @@
 import { env } from "cloudflare:workers";
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { Hono } from "hono";
+import tagsMigration from "../migrations/0003_announcement_tags.sql?raw";
 import coverMigration from "../migrations/0002_announcement_cover.sql?raw";
 import migration from "../migrations/0001_announcements.sql?raw";
 import { createApp } from "../src/app";
@@ -30,7 +31,7 @@ async function publish(item: Announcement) {
   return data(response);
 }
 beforeAll(async () => {
-  await env.API_PLATFORM_DB.batch((migration + coverMigration).split(";").filter((sql) => sql.trim()).map((sql) => env.API_PLATFORM_DB.prepare(sql)));
+  await env.API_PLATFORM_DB.batch((migration + coverMigration + tagsMigration).split(";").filter((sql) => sql.trim()).map((sql) => env.API_PLATFORM_DB.prepare(sql)));
 });
 beforeEach(async () => {
   await env.API_PLATFORM_DB.prepare("DELETE FROM announcements").run();
@@ -38,6 +39,52 @@ beforeEach(async () => {
 });
 
 describe("announcements API and D1", () => {
+  it("provides scoped tag directories with deterministic counts and immediate lifecycle changes", async () => {
+    const anonymous = createApp();
+    const directory = async (url = `${publicPath}/tags`) => {
+      const response = await anonymous.request(`https://example.com${url}`, undefined, env);
+      expect(response.status).toBe(200);
+      expect(response.headers.get("Cache-Control")).toBe("no-store");
+      return (await response.json() as { data: { items: { tag: string; count: number }[] } }).data.items;
+    };
+    const adminDirectory = async (status = "") => (await (await request(`${admin}/tags${status ? `?status=${status}` : ""}`)).json() as { data: { items: { tag: string; count: number }[] } }).data.items;
+    expect(await directory()).toEqual([]);
+    const make = async (tags: string[]) => data(await request(admin, "POST", { title: "标签", content: "正文", tags }));
+    let first = await publish(await make(["B", "A", "A", "common"]));
+    await publish(await make(["common"]));
+    await make(["draft-only"]);
+    const foreign = new AnnouncementRepository(env.API_PLATFORM_DB, "other-app");
+    const other = await foreign.create({ title: "其他应用", content: "正文", tags: ["foreign", "common"], coverUrl: null, isPinned: false }, now.toISOString());
+    await foreign.update({ ...other, status: "published", publishedAt: now.toISOString() }, now.toISOString());
+    const published = [{ tag: "common", count: 2 }, { tag: "A", count: 1 }, { tag: "B", count: 1 }];
+    expect(await directory()).toEqual(published);
+    expect(await directory(`${publicPath}/tags?status=draft&tag=A`)).toEqual(published);
+    expect(await adminDirectory("published")).toEqual(published);
+    expect(await adminDirectory("draft")).toEqual([{ tag: "draft-only", count: 1 }]);
+    expect(await adminDirectory()).toEqual([...published, { tag: "draft-only", count: 1 }]);
+    first = await data(await request(`${admin}/${first.id}`, "PATCH", { revision: first.revision, tags: ["edited"] }));
+    expect(await directory()).toEqual([{ tag: "common", count: 1 }, { tag: "edited", count: 1 }]);
+    first = await data(await request(`${admin}/${first.id}/unpublish`, "POST", { revision: first.revision }));
+    expect(await directory()).toEqual([{ tag: "common", count: 1 }]);
+    expect(await adminDirectory("unpublished")).toEqual([{ tag: "edited", count: 1 }]);
+    first = await publish(first);
+    expect(await directory()).toHaveLength(2);
+    await request(`${admin}/${first.id}`, "DELETE", { revision: first.revision });
+    expect(await directory()).toEqual([{ tag: "common", count: 1 }]);
+    expect(await adminDirectory("unpublished")).toEqual([]);
+  });
+  it("protects admin tag directories and reserves the tags route for GET", async () => {
+    expect((await createApp().request(`https://example.com${admin}/tags`, undefined, env)).status).toBe(401);
+    expect((await request(`${admin}/tags?status=invalid`)).status).toBe(400);
+    expect((await request("/api/unknown/announcement/tags")).status).toBe(404);
+    for (const base of [admin, publicPath]) {
+      for (const method of ["POST", "PATCH", "DELETE"]) {
+        const response = await request(`${base}/tags`, method, { revision: 1 });
+        expect(response.status).toBe(405);
+        expect(response.headers.get("Allow")).toBe("GET");
+      }
+    }
+  });
   it("returns an empty page publicly and does not depend on whitelist initialization", async () => {
     const response = await createApp().request(`https://example.com${publicPath}`, undefined, env);
     expect(response.status).toBe(200);
@@ -55,7 +102,7 @@ describe("announcements API and D1", () => {
     item = await data(await request(`${admin}/${item.id}`, "PATCH", { revision: item.revision, title: "编辑后", content: "新正文" }));
     expect(item.status).toBe("published"); expect(item.publishedAt).toBe(first);
     const visible = await (await request(publicPath)).json() as { data: { items: unknown[] } };
-    expect(visible.data.items).toEqual([{ id: item.id, title: "编辑后", content: "新正文", publishedAt: first, isPinned: false, coverUrl: null }]);
+    expect(visible.data.items).toEqual([{ id: item.id, title: "编辑后", content: "新正文", publishedAt: first, isPinned: false, coverUrl: null, tags: [] }]);
     item = await data(await request(`${admin}/${item.id}/unpublish`, "POST", { revision: item.revision }));
     expect(item.status).toBe("unpublished");
     expect((await (await request(publicPath)).json() as { data: { total: number } }).data.total).toBe(0);
@@ -119,6 +166,40 @@ describe("announcements API and D1", () => {
     await request(`${admin}/${item.id}`, "DELETE", { revision: item.revision });
     await expectHidden(path);
   });
+  it("normalizes optional tags and filters exact tags with pagination, status and app isolation", async () => {
+    const make = async (tags: string[], pinned = false) => data(await request(admin, "POST", { title: "标签公告", content: "正文", tags, isPinned: pinned }));
+    let first = await publish(await make([" 更新 ", "更新", "学习,生活", "Release"], true));
+    expect(first.tags).toEqual(["更新", "学习,生活", "Release"]);
+    await publish(await make(["更新"]));
+    await make(["更新"]);
+    await publish(await make(["更新说明"]));
+    const foreignRepo = new AnnouncementRepository(env.API_PLATFORM_DB, "other-app");
+    const foreign = await foreignRepo.create({ title: "其他应用", content: "secret", isPinned: false, coverUrl: null, tags: ["更新"] }, now.toISOString());
+    await foreignRepo.update({ ...foreign, status: "published", publishedAt: now.toISOString() }, now.toISOString());
+    const list = async (base: string, tag: string, extra = "") => (await (await request(`${base}?tag=${encodeURIComponent(tag)}${extra}`)).json() as { data: { items: Announcement[]; total: number } }).data;
+    const filtered = await list(publicPath, "更新", "&pageSize=1");
+    expect(filtered.total).toBe(2); expect(filtered.items[0]?.id).toBe(first.id);
+    expect((await list(publicPath, "更新", "&pageSize=1&page=2")).items).toHaveLength(1);
+    expect((await list(admin, "更新", "&status=draft")).total).toBe(1);
+    expect((await list(publicPath, "学习,生活")).total).toBe(1);
+    expect((await list(publicPath, "release")).total).toBe(0);
+    expect((await list(publicPath, "%' OR 1=1 --")).total).toBe(0);
+    expect((await data(await request(`${publicPath}/${first.id}`))).tags).toEqual(first.tags);
+    first = await data(await request(`${admin}/${first.id}`, "PATCH", { revision: first.revision, title: "保留标签" }));
+    expect(first.tags).toContain("更新");
+    const oldRevision = first.revision;
+    first = await data(await request(`${admin}/${first.id}`, "PATCH", { revision: first.revision, tags: ["替换"] }));
+    expect(first.tags).toEqual(["替换"]);
+    expect((await request(`${admin}/${first.id}`, "PATCH", { revision: oldRevision, tags: [] })).status).toBe(409);
+    first = await data(await request(`${admin}/${first.id}`, "PATCH", { revision: first.revision, tags: [] }));
+    expect(first.tags).toEqual([]);
+    expect((await create()).tags).toEqual([]);
+    for (const tags of [null, "更新", [1], [" "], ["x".repeat(51)], Array.from({ length: 21 }, (_, i) => String(i))]) {
+      expect((await request(admin, "POST", { title: "无效标签", tags })).status).toBe(400);
+      expect((await request(`${admin}/${first.id}`, "PATCH", { revision: first.revision, tags })).status).toBe(400);
+    }
+    expect((await request(`${publicPath}?tag=%20`)).status).toBe(400);
+  });
   it("sorts pinned first then newest and supports stable pages and filtered totals", async () => {
     const oldPinned = await publish(await create("旧置顶", "正文", true));
     const old = await publish(await create("旧普通"));
@@ -167,7 +248,7 @@ describe("announcements API and D1", () => {
   });
 
   it("isolates shared routes and all mutations by application, including existing foreign IDs", async () => {
-    const foreign = await new AnnouncementRepository(env.API_PLATFORM_DB, "other-app").create({ title: "其他应用", content: "secret", isPinned: false, coverUrl: null }, now.toISOString());
+    const foreign = await new AnnouncementRepository(env.API_PLATFORM_DB, "other-app").create({ title: "其他应用", content: "secret", isPinned: false, coverUrl: null, tags: [] }, now.toISOString());
     for (const [suffix, method] of [["", "GET"], ["", "PATCH"], ["/publish", "POST"], ["/unpublish", "POST"], ["", "DELETE"]]) {
       expect((await request(`${admin}/${foreign.id}${suffix}`, method, method === "GET" ? undefined : { revision: 1, ...(method === "PATCH" ? { title: "越权" } : {}) })).status).toBe(404);
     }
