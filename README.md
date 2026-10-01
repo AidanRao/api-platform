@@ -1,4 +1,4 @@
-# Public API
+# API Platform
 
 基于 Cloudflare Workers、Hono、Zod、React、Workers KV 和 D1 的多业务域 API。一个 Worker 服务多个在代码中注册的 App，通用能力按 App 隔离，应用专属能力独立扩展；公开接口无需鉴权，`/api/admin/*` 与 `/admin/*` 由统一的 Cloudflare Access 中间件保护。
 
@@ -134,7 +134,7 @@ npm run deploy:production:dry
 5. 把该 Access 应用的 Application Audience (AUD) 填入 `ACCESS_AUD`。
 6. 在 Access 应用设置中关闭 **Cookie Path Attribute**，使同一个 `CF_Authorization` Cookie 能覆盖 `/admin/*` 与 `/api/admin/*`。
 7. 当前 production 已将 `API_PLATFORM_KV` 固定到 namespace `ae082c6018fd43b0bb6c62dfe84219d7`（此前核对的云端名称为 `PUBLIC_API_KV`；实际绑定以 ID 为准），无需重复创建。新账号部署时需替换为自己的 namespace ID，并准备初始白名单。
-8. 首次执行 `npm run seed:production`，使用 `npm run deploy:production` 发布。`seed:remote` 和 `deploy` 分别是对应 production 命令的快捷别名。
+8. 首次执行 `npm run seed:production`，使用 `npm run deploy:production` 发布。`seed:remote` 和 `deploy` 分别是对应 production 命令的快捷别名。后续推送到 `main` 会由 [GitHub Actions 部署流程](./docs/DEPLOYMENT.md#github-actions-自动部署) 自动完成检查、D1 迁移和发布。
 
 生产环境中，即使 `workers.dev` 地址没有经过 Access 边缘应用，Worker 仍会验证 `Cf-Access-Jwt-Assertion`，不会直接暴露管理页面或管理 API。HTML 响应使用 `no-store`；带哈希的 `/admin/assets/*` 使用私有长期缓存，并统一添加 CSP、`frame-ancestors 'none'`、`nosniff` 等安全头。生产 CSP 允许 shadcn/Radix 所需的内联样式，脚本仍限定同源；只有本地开发另允许 HMR WebSocket。
 

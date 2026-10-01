@@ -1,0 +1,84 @@
+name: Deploy API Platform
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: api-platform-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    env:
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Check Cloudflare credentials
+        shell: bash
+        run: |
+          if [[ -z "$CLOUDFLARE_ACCOUNT_ID" || -z "$CLOUDFLARE_API_TOKEN" ]]; then
+            echo "::error::Configure CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN as repository secrets."
+            exit 1
+          fi
+
+      - run: npm ci
+      - run: npm run types:check
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build:production
+
+      - name: Check production deployment bundle
+        run: npx wrangler deploy --config web/dist/api_platform/wrangler.json --dry-run
+
+      - name: Apply production D1 migrations
+        shell: bash
+        run: |
+          if npx wrangler d1 migrations apply API_PLATFORM_DB \
+              --remote --env production --config wrangler.jsonc; then
+            exit 0
+          fi
+
+          echo "::warning::D1 migration command failed; checking the recorded migration state."
+
+          for attempt in 1 2 3; do
+            if migration_state="$(npx wrangler d1 migrations list API_PLATFORM_DB \
+                --remote --env production --config wrangler.jsonc 2>&1)"; then
+              echo "$migration_state"
+              if grep -Fq "No migrations to apply!" <<< "$migration_state"; then
+                echo "::warning::All migrations are recorded as applied; continuing after the ambiguous failure."
+                exit 0
+              fi
+            else
+              echo "$migration_state"
+            fi
+
+            if [ "$attempt" -lt 3 ]; then
+              sleep $((attempt * 5))
+            fi
+          done
+
+          echo "::error::D1 migration state could not be verified; stopping before Worker deployment."
+          exit 1
+
+      - name: Deploy production Worker
+        run: |
+          npx wrangler deploy \
+            --config web/dist/api_platform/wrangler.json \
+            --message "Deploy ${GITHUB_SHA}"

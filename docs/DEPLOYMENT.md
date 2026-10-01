@@ -1,4 +1,4 @@
-# Public API 从零上线指南
+# API Platform 从零上线指南
 
 本文说明如何把本项目第一次部署到 Cloudflare。完成后，一个 Cloudflare Worker 会同时提供：
 
@@ -10,7 +10,7 @@
 
 React 静态资源和 API Worker 会在同一次部署中发布，不需要 Pages、第二个 Worker 或第二套流水线。
 
-> 本文中的 `public-api.example.com`、`example.com`、管理员邮箱和 Access team name 都是示例，请替换成自己的值。
+> 本文中的 `api-platform.example.com`、`example.com`、管理员邮箱和 Access team name 都是示例，请替换成自己的值。
 
 ## 1. 上线前准备
 
@@ -18,7 +18,7 @@ React 静态资源和 API Worker 会在同一次部署中发布，不需要 Page
 
 - 一个可登录的 Cloudflare 账号。
 - 一个已接入该账号、状态为 Active 的域名 zone，例如 `example.com`。
-- 一个未被 CNAME 占用的子域名，例如 `public-api.example.com`。
+- 一个未被 CNAME 占用的子域名，例如 `api-platform.example.com`。
 - Node.js 24 LTS 和项目自带的 npm。
 - 可以接收 Cloudflare Access 登录邮件的管理员邮箱，或现有企业身份提供商账号。
 
@@ -31,7 +31,7 @@ Cloudflare Workers Custom Domain 要求域名属于当前账号中的 Active zon
 | 名称 | 示例 | 用途 |
 | --- | --- | --- |
 | 根域名 | `example.com` | Cloudflare zone |
-| 服务 hostname | `public-api.example.com` | API 和管理页共同入口 |
+| 服务 hostname | `api-platform.example.com` | API 和管理页共同入口 |
 | Access team name | `my-team` | 组成 `https://my-team.cloudflareaccess.com` |
 | 管理员邮箱 | `admin@example.com` | Access Allow 策略 |
 | Worker 名称 | `api-platform` | `wrangler.jsonc` 中已有 |
@@ -41,7 +41,7 @@ Cloudflare Workers Custom Domain 要求域名属于当前账号中的 Active zon
 在项目根目录执行：
 
 ```bash
-cd /Users/rcx/code/ts/public-api
+cd /path/to/api-platform
 npm ci
 npx wrangler --version
 npx wrangler login
@@ -109,12 +109,12 @@ OTP 只是登录方式，不是授权范围。后续 Access Allow 策略必须�
 1. 进入 **Zero Trust > Access controls > Applications**。
 2. 选择 **Create new application**。
 3. 选择 **Self-hosted and private**。
-4. 应用名称填写，例如 `Public API Admin`。
+4. 应用名称填写，例如 `API Platform Admin`。
 5. 添加第一个 public hostname：
-   - Hostname：`public-api.example.com`
+   - Hostname：`api-platform.example.com`
    - Path：`/admin/*`
 6. 再选择 **Add public hostname**，添加：
-   - Hostname：`public-api.example.com`
+   - Hostname：`api-platform.example.com`
    - Path：`/api/admin/*`
 7. 不要添加整个 hostname、`/*` 或 `/api/*`，否则公开 GET 也会要求登录。
 8. 创建一个 Allow 策略：
@@ -213,7 +213,7 @@ fedcba9876543210fedcba9876543210
       ],
       "routes": [
         {
-          "pattern": "public-api.example.com",
+          "pattern": "api-platform.example.com",
           "custom_domain": true
         }
       ]
@@ -232,7 +232,7 @@ fedcba9876543210fedcba9876543210
 - production 的 `workers_dev=false` 和 `preview_urls=false` 会关闭绕过自定义域的公开入口。
 - Custom Domain 会让 Worker 成为该 hostname 的 origin，不需要 Tunnel 或额外服务器。Vite 生成的客户端目录会自动写入部署配置，输入配置不应手写 `assets.directory`。参见 [Vite Static Assets](https://developers.cloudflare.com/workers/vite-plugin/reference/static-assets/)。
 
-如果 `public-api.example.com` 已有 CNAME，请先确认它没有承载其他业务，再删除冲突记录；不要覆盖仍在使用的 DNS 记录。
+如果 `api-platform.example.com` 已有 CNAME，请先确认它没有承载其他业务，再删除冲突记录；不要覆盖仍在使用的 DNS 记录。
 
 ### 7.2 重新生成绑定类型
 
@@ -323,6 +323,19 @@ npm run deploy:production
 
 `npm run deploy` 是 `deploy:production` 的快捷别名。分环境脚本会通过 `CLOUDFLARE_ENV` 让 Vite 选择正确的 Wrangler 环境，再部署生成的配置；即使之前运行过本地 preview，也不会把本地 Access bypass 发布到线上。
 
+### GitHub Actions 自动部署
+
+仓库的 `.github/workflows/deploy.yml` 在每次推送到 `main` 时运行，也可通过 GitHub Actions 页面手动触发。当前只有 production 一个部署目标，没有按分支选择环境。工作流依次执行类型检查、测试、production 构建与 dry-run、生产 D1 迁移，最后部署同一份构建产物。若迁移命令失败，仅当重新查询确认没有待应用迁移时才继续发布。
+
+在 GitHub 仓库的 **Settings > Secrets and variables > Actions** 中配置以下 Repository secrets：
+
+| Secret | 内容 |
+| --- | --- |
+| `CLOUDFLARE_ACCOUNT_ID` | 承载 `api-platform` Worker 和 D1 的 Cloudflare 账号 ID |
+| `CLOUDFLARE_API_TOKEN` | 该账号的 API Token，需具备部署 Worker、管理目标 Custom Domain 和 D1 写入所需权限 |
+
+Token 至少需覆盖目标 Worker 的编辑权限、目标 zone 的 Workers Routes Write 权限，以及对生产 D1 执行迁移所需的 D1 Edit 权限；按实际资源收窄作用范围。不要把 Token 写进仓库。配置好 Secrets 后，推送到 `main` 或手动触发工作流，并检查 Actions 中迁移和部署步骤均成功。
+
 ## 11. 上线验收
 
 ### 11.1 公开接口不需要认证
@@ -331,7 +344,7 @@ npm run deploy:production
 
 ```bash
 curl -i \
-  https://public-api.example.com/api/buaa-classhopper/v1/iclass/access-policy
+  https://api-platform.aidanrao.top/api/buaa-classhopper/v1/iclass/access-policy
 ```
 
 预期：
@@ -349,7 +362,7 @@ curl -i \
 使用未登录的浏览器打开：
 
 ```text
-https://public-api.example.com/admin/buaa-classhopper/
+https://api-platform.aidanrao.top/admin/buaa-classhopper/
 ```
 
 预期先进入 Cloudflare Access 登录流程。登录允许的管理员邮箱后，页面应显示当前 revision 和白名单。
@@ -413,7 +426,7 @@ npx wrangler versions list --name api-platform
 npx wrangler rollback --name api-platform
 ```
 
-也可以进入 **Workers & Pages > public-api > Deployments**，在目标版本菜单中选择 **Rollback**。回滚会立即切换线上 Worker 版本，但不会回滚 KV 内容；Cloudflare Worker 版本也不保存 KV 历史。参见 [Workers rollbacks](https://developers.cloudflare.com/workers/versions-and-deployments/rollbacks/)。
+也可以进入 **Workers & Pages > api-platform > Deployments**，在目标版本菜单中选择 **Rollback**。回滚会立即切换线上 Worker 版本，但不会回滚 KV 内容；Cloudflare Worker 版本也不保存 KV 历史。参见 [Workers rollbacks](https://developers.cloudflare.com/workers/versions-and-deployments/rollbacks/)。
 
 ## 14. 常见问题
 
@@ -457,7 +470,7 @@ Workers KV 是最终一致存储，跨地区读取可能短暂看到旧值。管
 - 确认根域名是当前账号中的 Active zone。
 - 确认 hostname 没有现存 CNAME。
 - 确认 `routes.pattern` 只写 hostname，不带协议和路径。
-- 在 **Workers & Pages > public-api > Settings > Domains & Routes** 查看具体状态。
+- 在 **Workers & Pages > api-platform > Settings > Domains & Routes** 查看具体状态。
 
 ## 15. 上线完成判定
 

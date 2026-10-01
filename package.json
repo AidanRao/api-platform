@@ -1,5 +1,5 @@
 {
-  "name": "public-api",
+  "name": "api-platform",
   "version": "0.1.0",
   "private": true,
   "type": "module",
