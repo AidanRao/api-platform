@@ -1,12 +1,12 @@
 import { env } from "cloudflare:workers";
 import { beforeEach, describe, expect, it } from "vitest";
 
-import type { AccessPolicy } from "../src/domains/buaa-classhopper/access-policy.schema";
+import type { AccessPolicy } from "../src/domains/buaa-classhopper/access-policy/schema";
 import {
   ACCESS_POLICY_KEY,
   readAccessPolicy,
   writeAccessPolicy,
-} from "../src/domains/buaa-classhopper/access-policy.repository";
+} from "../src/domains/buaa-classhopper/access-policy/repository";
 
 const policy: AccessPolicy = {
   schemaVersion: 1,

@@ -5,7 +5,7 @@ import {
   accessPolicySchema,
   type AccessPolicy,
   type AccessPolicyPatch,
-} from "../src/domains/buaa-classhopper/access-policy.schema";
+} from "../src/domains/buaa-classhopper/access-policy/schema";
 
 const validPolicy = {
   schemaVersion: 1,

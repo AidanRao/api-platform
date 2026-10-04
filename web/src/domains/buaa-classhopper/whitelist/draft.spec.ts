@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type { AccessPolicy } from "../../../../src/domains/buaa-classhopper/access-policy.schema";
+import type { AccessPolicy } from "../../../../../src/domains/buaa-classhopper/access-policy/schema";
 import {
   buildPatch,
   createEmptyDraft,

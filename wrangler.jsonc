@@ -8,11 +8,15 @@
 	],
 	"workers_dev": true,
 	"preview_urls": true,
+	"workflows": [{ "name": "iclass-checkin", "binding": "ICLASS_CHECKIN_WORKFLOW", "class_name": "IclassCheckinWorkflow" }],
+	"triggers": { "crons": ["* * * * *"] },
 	"vars": {
 		"TEAM_DOMAIN": "https://YOUR_TEAM.cloudflareaccess.com",
 		"ACCESS_AUD": "REPLACE_WITH_ACCESS_APPLICATION_AUD",
 		"ENVIRONMENT": "development",
 		"ACCESS_BYPASS_LOCAL": "false",
+		"SSO_ISSUER": "https://sso-test.aidanrao.top",
+		"ICLASS_SERVICE_BASE_URL": "http://127.0.0.1:8020",
 		"OSS_BUCKET": "",
 		"OSS_REGION": "",
 		"OSS_PREFIX": "api-platform"
@@ -51,6 +55,8 @@
 	"env": {
 		"production": {
 			"name": "api-platform",
+			"workflows": [{ "name": "iclass-checkin", "binding": "ICLASS_CHECKIN_WORKFLOW", "class_name": "IclassCheckinWorkflow" }],
+			"triggers": { "crons": ["* * * * *"] },
 			"workers_dev": false,
 			"preview_urls": false,
 			"vars": {
@@ -58,6 +64,8 @@
 				"ACCESS_AUD": "2516483d362ddb370dae6ff3d397aa67a300729e6cb130423d73e20f76a7961a",
 				"ENVIRONMENT": "production",
 				"ACCESS_BYPASS_LOCAL": "false",
+				"SSO_ISSUER": "https://sso.aidanrao.top",
+				"ICLASS_SERVICE_BASE_URL": "https://iclass.aidanrao.top",
 				"OSS_BUCKET": "aidan-space",
 				"OSS_REGION": "cn-beijing",
 				"OSS_PREFIX": "api-platform"

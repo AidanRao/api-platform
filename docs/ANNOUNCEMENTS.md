@@ -2,7 +2,7 @@
 
 公告是所有已注册 App 的通用能力，后端位于 `src/features/announcements/`，前端位于 `web/src/features/announcements/`。App 身份由独立的 `src/apps/registry.ts` 管理，模块只接收 `appId`，不维护应用名单或基础设施。平台架构、D1 和 OSS 配置见 [平台接入文档](./PLATFORM.md)。
 
-管理入口：`/admin/buaa-classhopper/announcements`；新建与编辑使用 `/new`、`/:id` 独立路由。白名单与公告分别加载，白名单缺失不影响公告；页面内切换栏目保留未保存内容，离开页面时提示未保存更改。
+管理入口：`/admin/buaa-classhopper/announcements`；新建与编辑使用 `/new`、`/:id` 独立路由。编辑页左侧输入 Markdown、右侧实时预览，提供常用格式按钮。白名单与公告分别加载，白名单缺失不影响公告；页面内切换栏目保留未保存内容，离开页面时提示未保存更改。
 
 ## 公开接口
 
@@ -16,7 +16,7 @@ GET /api/buaa-classhopper/announcement?page=1&pageSize=20
   "msg": "获取成功",
   "data": {
     "items": [{
-      "id": "公告 UUID",
+      "id": "ANCE-20260922-ABCDEFGHIJ",
       "title": "公告标题",
       "content": "# Markdown 原文\n\n![图片](https://examplebucket.oss-cn-hangzhou.aliyuncs.com/api-platform/images/example.png)",
       "publishedAt": "2026-09-22T08:00:00.000Z",
@@ -33,7 +33,7 @@ GET /api/buaa-classhopper/announcement?page=1&pageSize=20
 
 仅返回 `published` 状态；按 `isPinned DESC, publishedAt DESC, id DESC` 排序。分页默认 1 / 20，page 最大 1,000,000，pageSize 最大 100，必须为正整数，越界返回 400。空列表和超出末页返回 `items: []`。响应使用 `Cache-Control: no-store`，下架后新请求不复用 HTTP 缓存。
 
-正文原样保存、返回 Markdown，不生成 HTML。时间为 UTC ISO 8601；管理页以 Asia/Shanghai 显示。
+新公告 ID 使用 `ANCE-YYYYMMDD-XXXXXXXXXX`：日期按 Asia/Shanghai 生成，末尾为 10 位大写 Base36 随机码；与预约 ID 使用同一个生成器。已有公告 ID 保持不变。正文原样保存、返回 Markdown，不生成 HTML。时间为 UTC ISO 8601；管理页以 Asia/Shanghai 显示。
 
 ### 公开详情
 

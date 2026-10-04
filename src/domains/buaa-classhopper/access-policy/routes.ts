@@ -6,18 +6,18 @@ import {
   errorResponse,
   methodNotAllowed,
   successResponse,
-} from "../../http/response";
-import type { AppEnv } from "../../http/types";
+} from "../../../http/response";
+import type { AppEnv } from "../../../http/types";
 import {
   accessPolicyPatchSchema,
   formatAccessPolicyIssues,
-} from "./access-policy.schema";
-import { readAccessPolicy } from "./access-policy.repository";
+} from "./schema";
+import { readAccessPolicy } from "./repository";
 import {
   AccessPolicyMutationError,
   RevisionConflictError,
   updateAccessPolicy,
-} from "./access-policy.service";
+} from "./service";
 
 export const PUBLIC_BUAA_CLASSHOPPER_BASE_PATH = "/api/buaa-classhopper";
 export const ADMIN_BUAA_CLASSHOPPER_BASE_PATH =

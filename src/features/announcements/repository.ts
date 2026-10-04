@@ -1,4 +1,5 @@
 import type { Announcement, CreateAnnouncement, ListQuery } from "./schema";
+import { generatePublicId } from "../../infrastructure/public-id";
 
 type Row = Omit<Announcement, "isPinned" | "tags"> & { isPinned: number; tags: string };
 const columns = `id, title, content, tags, cover_url AS coverUrl, is_pinned AS isPinned, status,
@@ -6,7 +7,7 @@ const columns = `id, title, content, tags, cover_url AS coverUrl, is_pinned AS i
 const decode = (row: Row): Announcement => ({ ...row, isPinned: row.isPinned === 1, tags: JSON.parse(row.tags) as string[] });
 
 export class AnnouncementRepository {
-  constructor(private readonly db: D1Database, private readonly appId: string) {}
+  constructor(private readonly db: D1Database, private readonly appId: string, private readonly idGenerator = generatePublicId) {}
 
   async list(query: ListQuery) {
     let where = query.status ? "app_id = ? AND status = ?" : "app_id = ?";
@@ -42,11 +43,14 @@ export class AnnouncementRepository {
   }
 
   async create(input: CreateAnnouncement, timestamp: string): Promise<Announcement> {
-    const row = await this.db.prepare(`INSERT INTO announcements
-      (app_id, id, title, content, cover_url, tags, is_pinned, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING ${columns}`)
-      .bind(this.appId, crypto.randomUUID(), input.title, input.content, input.coverUrl, JSON.stringify(input.tags), Number(input.isPinned), timestamp, timestamp).first<Row>();
-    if (!row) throw new Error("Announcement insert returned no row");
-    return decode(row);
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const id = this.idGenerator("ANCE", new Date(timestamp), "Asia/Shanghai");
+      const row = await this.db.prepare(`INSERT OR IGNORE INTO announcements
+        (app_id, id, title, content, cover_url, tags, is_pinned, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING ${columns}`)
+        .bind(this.appId, id, input.title, input.content, input.coverUrl, JSON.stringify(input.tags), Number(input.isPinned), timestamp, timestamp).first<Row>();
+      if (row) return decode(row);
+    }
+    throw new Error("Unable to generate a unique announcement ID");
   }
 
   async update(value: Announcement, timestamp: string): Promise<Announcement | null> {

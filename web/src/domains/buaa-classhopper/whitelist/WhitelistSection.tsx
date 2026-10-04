@@ -4,7 +4,7 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useId, useState, type FormEvent } from "react";
 
-import type { AccessPolicy } from "../../../../src/domains/buaa-classhopper/access-policy.schema";
+import type { AccessPolicy } from "../../../../../src/domains/buaa-classhopper/access-policy/schema";
 import type { PolicyDraft, PolicyField } from "./draft";
 
 interface WhitelistSectionProps {

@@ -192,7 +192,8 @@ fedcba9876543210fedcba9876543210
     "TEAM_DOMAIN": "https://YOUR_TEAM.cloudflareaccess.com",
     "ACCESS_AUD": "REPLACE_WITH_ACCESS_APPLICATION_AUD",
     "ENVIRONMENT": "production",
-    "ACCESS_BYPASS_LOCAL": "false"
+    "ACCESS_BYPASS_LOCAL": "false",
+    "SSO_ISSUER": "https://sso-test.aidanrao.top"
   },
   "env": {
     "production": {
@@ -203,7 +204,8 @@ fedcba9876543210fedcba9876543210
         "TEAM_DOMAIN": "https://my-team.cloudflareaccess.com",
         "ACCESS_AUD": "Access Application Audience AUD",
         "ENVIRONMENT": "production",
-        "ACCESS_BYPASS_LOCAL": "false"
+        "ACCESS_BYPASS_LOCAL": "false",
+        "SSO_ISSUER": "https://sso.aidanrao.top"
       },
       "kv_namespaces": [
         {
@@ -226,6 +228,7 @@ fedcba9876543210fedcba9876543210
 
 - `TEAM_DOMAIN` 必须带 `https://`，但不能带路径或末尾自定义内容。
 - `ACCESS_AUD` 必须来自第 5 步创建的同一个 Access 应用。
+- `SSO_ISSUER` 须与当前环境 SSO JWT 的 `iss` 完全一致；预约客户端还须在 SSO 侧获准 `api-platform-buaa-classhopper` audience。
 - production 必须显式声明 `vars` 与 `kv_namespaces`；这些字段不会自动继承根配置。
 - production 的 `ACCESS_BYPASS_LOCAL` 必须保持 `false`。
 - `API_PLATFORM_KV` 是代码依赖的 binding 名称，不要修改。
@@ -326,6 +329,8 @@ npm run deploy:production
 ### GitHub Actions 自动部署
 
 仓库的 `.github/workflows/deploy.yml` 在每次推送到 `main` 时运行，也可通过 GitHub Actions 页面手动触发。当前只有 production 一个部署目标，没有按分支选择环境。工作流依次执行类型检查、测试、production 构建与 dry-run、生产 D1 迁移，最后部署同一份构建产物。若迁移命令失败，仅当重新查询确认没有待应用迁移时才继续发布。
+
+签到调度使用 `iclass-checkin` Workflow。部署前先升级 Go `iclass-service` 至支持 `attemptId` 与结果回调的版本，在 `wrangler.jsonc` 的 `env.production.vars` 配置普通变量 `ICLASS_SERVICE_BASE_URL`，并用 `npx wrangler secret put ICLASS_SERVICE_SECRET --env production` 配置密钥；Go 服务使用相同的 `ICLASS_SERVICE_SECRET`，其 `API_PLATFORM_ACCESS_TOKEN` 需包含 `reservations:read` 和 `reservations:result:write`。预约记录的原始建表脚本包含签到节点的 `events_json` 字段。详见 [预约与签到](./RESERVATIONS.md)。
 
 在 GitHub 仓库的 **Settings > Secrets and variables > Actions** 中配置以下 Repository secrets：
 

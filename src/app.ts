@@ -13,11 +13,13 @@ import { serveAdminAsset } from "./http/admin-assets";
 import { createMediaRoutes } from "./features/media/routes";
 import { methodNotAllowed, successResponse, errorResponse } from "./http/response";
 import type { AppEnv } from "./http/types";
+import type { SsoVerifier } from "./http/sso-auth";
 
 export function createApp(
   verifyAccess: AccessVerifier = verifyAccessRequest,
   now: () => Date = () => new Date(),
   apps: readonly AppDefinition[] = APPS,
+  verifySso?: SsoVerifier,
 ): Hono<AppEnv> {
   const application = new Hono<AppEnv>();
 
@@ -27,7 +29,7 @@ export function createApp(
   application.get("/api/admin/apps", () => successResponse("获取成功", { items: apps.map(({ id, name }) => ({ id, name })) }, 200, { "Cache-Control": "no-store" }));
   application.all("/api/admin/apps", () => methodNotAllowed("GET"));
   application.route("/api/admin/media", createMediaRoutes(now));
-  mountAppRoutes(application, apps, now);
+  mountAppRoutes(application, apps, now, verifySso);
 
   application.notFound(() =>
     errorResponse("接口不存在", 404, {

@@ -36,6 +36,17 @@ afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 const writes = () => vi.mocked(fetch).mock.calls.filter(([, init]) => init?.method && init.method !== "GET");
 
 describe("routed announcement management", () => {
+  it("formats selected Markdown and updates the split preview before saving", async () => {
+    const user = userEvent.setup(); renderAdmin(`${path}/one`);
+    const textarea = await screen.findByLabelText("公告内容（Markdown）") as HTMLTextAreaElement;
+    expect(screen.getByText("Markdown 源码")).not.toBeNull();
+    expect(screen.getByText("实时预览")).not.toBeNull();
+    textarea.focus(); textarea.setSelectionRange(0, 2);
+    await user.click(screen.getByRole("button", { name: "加粗" }));
+    expect(textarea.value).toBe("**原始**内容");
+    expect(await screen.findByText("原始", { selector: "strong" })).not.toBeNull();
+    expect(writes()).toHaveLength(0);
+  });
   it("creates then publishes with revision and changes the new route to a stable detail URL", async () => {
     const user = userEvent.setup(); const { router } = renderAdmin(`${path}/new`);
     await user.type(await screen.findByLabelText("公告标题"), item.title);
@@ -242,6 +253,7 @@ describe("routed announcement management", () => {
     await user.click(screen.getByRole("button", { name: "取消" })); expect(writes()).toHaveLength(1);
     await user.click(screen.getByRole("button", { name: "删除公告" }));
     await user.click(screen.getByRole("button", { name: "确认删除" })); await screen.findByText("暂无公告");
+    expect(await screen.findByText("公告已删除")).not.toBeNull();
     expect(writes()[1]?.[1]?.method).toBe("DELETE"); expect(JSON.parse(writes()[1]?.[1]?.body as string)).toEqual({ revision: 2 });
   });
 });

@@ -2,12 +2,12 @@ import { env } from "cloudflare:workers";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createApp } from "../src/app";
-import type { AccessPolicy } from "../src/domains/buaa-classhopper/access-policy.schema";
-import { ACCESS_POLICY_KEY } from "../src/domains/buaa-classhopper/access-policy.repository";
+import type { AccessPolicy } from "../src/domains/buaa-classhopper/access-policy/schema";
+import { ACCESS_POLICY_KEY } from "../src/domains/buaa-classhopper/access-policy/repository";
 import {
   ADMIN_ACCESS_POLICY_PATH,
   PUBLIC_ACCESS_POLICY_PATH,
-} from "../src/domains/buaa-classhopper/routes";
+} from "../src/domains/buaa-classhopper/access-policy/routes";
 
 const fixedNow = new Date("2026-09-10T04:00:00.000Z");
 const policy: AccessPolicy = {

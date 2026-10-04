@@ -1,8 +1,14 @@
 import type { AppDefinition } from "../../../src/apps/schema";
 export interface AdminSection { readonly id: string; readonly label: string }
-const commonSections: readonly AdminSection[] = [{ id: "announcements", label: "公告管理" }];
+const commonSections: readonly AdminSection[] = [
+  { id: "announcements", label: "公告管理" },
+  { id: "api-tokens", label: "API Token 管理" },
+];
 const appSections: Readonly<Record<string, readonly AdminSection[]>> = {
-  "buaa-classhopper": [{ id: "whitelist", label: "白名单管理" }],
+  "buaa-classhopper": [
+    { id: "whitelist", label: "白名单管理" },
+    { id: "reservations", label: "签到预约" },
+  ],
 };
 export function sectionsForApp(app: AppDefinition): readonly AdminSection[] {
   return [...(appSections[app.id] ?? []), ...commonSections];

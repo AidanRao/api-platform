@@ -29,7 +29,7 @@
   "include": [
     "web/**/*.ts",
     "web/**/*.tsx",
-    "src/domains/buaa-classhopper/access-policy.schema.ts",
+    "src/domains/buaa-classhopper/access-policy/schema.ts",
     "vite.config.ts",
     "vitest.web.config.ts"
   ]

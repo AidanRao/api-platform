@@ -2,7 +2,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { AccessPolicy } from "../../src/domains/buaa-classhopper/access-policy.schema";
+import type { AccessPolicy } from "../../src/domains/buaa-classhopper/access-policy/schema";
 import { renderAdmin, apps, ok } from "./test-utils";
 import { act } from "@testing-library/react";
 
@@ -103,15 +103,18 @@ describe("whitelist management page", () => {
       .mockResolvedValueOnce(policyResponse(policy))
       .mockResolvedValueOnce(policyResponse(updated, "更新成功"));
     const user = userEvent.setup();
-    renderAdmin();
+    const { router } = renderAdmin();
 
     const input = await screen.findByLabelText("新增姓名");
     await user.type(input, "  王五  {Enter}");
     expect(screen.getByText("待新增")).not.toBeNull();
     await user.click(screen.getByRole("button", { name: "保存更改" }));
 
-    await screen.findByText("白名单已保存");
+    const notice = await screen.findByText("白名单已保存");
+    expect(notice.closest('[role="status"]')?.parentElement?.className).toContain("fixed");
     expect(screen.getByText("2026-09-10-002")).not.toBeNull();
+    await act(() => router.navigate("/admin/"));
+    expect(screen.getByText("白名单已保存")).not.toBeNull();
     const request = fetchMock.mock.calls[1];
     expect(request?.[0]).toBe(
       "/api/admin/buaa-classhopper/v1/iclass/access-policy",

@@ -2,7 +2,7 @@ import {
   accessPolicySchema,
   type AccessPolicy,
   formatAccessPolicyIssues,
-} from "./access-policy.schema";
+} from "./schema";
 
 export const ACCESS_POLICY_KEY =
   "buaa-classhopper:iclass:access-policy:v1";

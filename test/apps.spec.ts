@@ -13,7 +13,7 @@ describe("code-maintained application registry", () => {
   });
   it("rejects duplicates, empty names and reserved or unsafe slugs", () => {
     expect(() => defineApps([{ id: "test", name: "Test" }, { id: "test", name: "Again" }])).toThrow();
-    for (const id of ["", "assets", "index", "admin", "apps", "media", "../other", "some/app", "foo?bar", "foo_1"]) {
+    for (const id of ["", "assets", "index", "admin", "apps", "media", "token", "../other", "some/app", "foo?bar", "foo_1"]) {
       expect(() => defineApps([{ id, name: "Test" }])).toThrow();
     }
     expect(() => defineApps([{ id: "test", name: " " }])).toThrow();
@@ -35,7 +35,8 @@ describe("platform administration", () => {
     expect((await app.request("https://example.com/api/admin/b/media/images", { method: "POST" }, env)).status).toBe(404);
   });
   it("matches only registered pages and their resource detail routes", () => {
-    for (const path of ["/admin/", "/admin/buaa-classhopper/", "/admin/buaa-classhopper/whitelist", "/admin/buaa-classhopper/announcements", "/admin/buaa-classhopper/announcements/new", "/admin/buaa-classhopper/announcements/abc"]) expect(isAdminPage(path)).toBe(true);
+    for (const path of ["/admin/", "/admin/buaa-classhopper/", "/admin/buaa-classhopper/whitelist", "/admin/buaa-classhopper/reservations", "/admin/buaa-classhopper/api-tokens", "/admin/buaa-classhopper/api-tokens/new", "/admin/buaa-classhopper/announcements", "/admin/buaa-classhopper/announcements/new", "/admin/buaa-classhopper/announcements/abc"]) expect(isAdminPage(path)).toBe(true);
+    expect(isAdminPage("/admin/second-app/api-tokens", defineApps([{ id: "second-app", name: "Second" }]))).toBe(true);
     for (const path of ["/admin/unknown/announcements", "/admin/buaa-classhopper/extra", "/admin/buaa-classhopper/announcements/abc/extra"]) expect(isAdminPage(path)).toBe(false);
   });
 });

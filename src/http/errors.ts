@@ -2,7 +2,7 @@
 export class ApiError extends Error {
   constructor(
     message: string,
-    readonly status: 400 | 404 | 409 | 413 | 502 | 503,
+    readonly status: 400 | 401 | 403 | 404 | 409 | 413 | 502 | 503,
     readonly data: unknown = null,
   ) {
     super(message);

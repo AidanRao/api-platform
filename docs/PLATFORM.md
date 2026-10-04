@@ -11,7 +11,7 @@
 | 通用业务 | `src/features/announcements/`，未来 `src/features/ads/` | 自己的 schema、表和业务规则，接收平台传入的 App 身份 |
 | 共享媒体 | `src/features/media/`、`src/infrastructure/oss.ts` | 同源上传入口、图片校验和 OSS 存储，不引用公告业务 |
 | 管理框架 | `web/src/App.tsx`、`web/src/platform/` | React Router 路由、App 上下文、TanStack Query、会话草稿和通用 API 客户端 |
-| 应用扩展 | `src/domains/buaa-classhopper/` 与对应前端目录 | 只向 BUAA 提供 iClass 白名单 |
+| 应用扩展 | `src/domains/buaa-classhopper/` 与对应前端目录 | 只向 BUAA 提供 iClass 白名单和签到预约 |
 
 基础设施和 HTTP 层不导入具体业务模块。App 注册表不导入公告／广告，不包含逐个 App 的通用能力开关。通用模块不包含 `buaa-classhopper` 的名称或请求地址。数据库、OSS 配置和管理 HTML 都归平台共享。
 
@@ -29,11 +29,13 @@
 - `/api/another-app/announcement` 公告读取，以及 `/api/admin/another-app/announcement` 管理接口。
 - 自动出现在 `GET /api/admin/apps` 和管理端应用选择器中。
 
-未知 App 的入口和接口返回 404。App ID 使用小写字母、数字、短横线，不允许重复和 `admin/assets/index/apps/media` 保留值。前端从 `/api/admin/apps` 获取目录，根据 URL 匹配应用并向业务组件提供 App 上下文；管理 API 的 App 由后端挂载路径绑定，不接受请求体更改。切换应用前检查未保存内容，确认放弃后清除当前应用草稿，不带入其他 App。
+未知 App 的入口和接口返回 404。App ID 使用小写字母、数字、短横线，不允许重复和 `admin/assets/index/apps/media/token` 保留值。前端从 `/api/admin/apps` 获取目录，根据 URL 匹配应用并向业务组件提供 App 上下文；管理 API 的 App 由后端挂载路径绑定，不接受请求体更改。切换应用前检查未保存内容，确认放弃后清除当前应用草稿，不带入其他 App。
 
-App 不创建 D1 表，不提供新增、修改或删除 App 的管理 API。`app_id` 由代码注册表管理并出现在各业务表中。更改或删除已有 ID 不会自动迁移、删除数据库记录或 OSS 对象；已有应用应保留稳定 ID。
+注册 App 不会自动创建 D1 表，也不提供新增、修改或删除 App 的管理 API；业务表通过迁移显式创建。`app_id` 由代码注册表管理并出现在通用业务表中。更改或删除已有 ID 不会自动迁移、删除数据库记录或 OSS 对象；已有应用应保留稳定 ID。
 
 所有管理入口继续由同一个 Cloudflare Access 管理员策略保护，当前不区分每个管理员能够访问哪些 App。
+
+BUAA 专属签到预约的 SSO、API Token 接口及 D1 表见 [预约文档](./RESERVATIONS.md)。API Token 在各应用的管理栏目中创建、查看元数据与撤销。
 
 ## 平台管理接口与前端
 
@@ -54,7 +56,10 @@ App 不创建 D1 表，不提供新增、修改或删除 App 的管理 API。`ap
 | `/admin/:appId/announcements` | 公告列表，`page` 和 `status` 查询参数支持历史前进后退 |
 | `/admin/:appId/announcements/new` | 新建草稿 |
 | `/admin/:appId/announcements/:id` | 公告编辑 |
+| `/admin/:appId/api-tokens` | 当前应用的 API Token 列表、轮换、撤销及撤销后删除 |
+| `/admin/:appId/api-tokens/new` | 独立的 Token 创建与一次性明文展示页 |
 | `/admin/buaa-classhopper/whitelist` | 应用专属白名单 |
+| `/admin/buaa-classhopper/reservations` | 全部用户签到预约的分页列表 |
 
 侧边栏切换应用时保留当前栏目类型，目标不支持该栏目时使用默认栏目；不会带上原公告 ID。Worker 只为已注册应用的合法页面返回统一 HTML，未知页面、应用或静态资源仍返回 404。
 
@@ -70,7 +75,7 @@ App 不创建 D1 表，不提供新增、修改或删除 App 的管理 API。`ap
 
 ## 公共数据库
 
-D1 绑定为 `API_PLATFORM_DB`，建议数据库名为 `api-platform`。`migrations/` 是平台迁移目录，目前 `0001_announcements.sql` 只创建公告模块需要的表和索引，未来业务使用后续迁移；现有白名单仍使用 KV。
+D1 绑定为 `API_PLATFORM_DB`，建议数据库名为 `api-platform`。`migrations/` 是平台迁移目录：公告使用 `0001`–`0003`，签到预约、签到调度与 API Token 的完整表结构和索引由 `0004_reservations_and_api_tokens.sql` 一次创建；现有白名单仍使用 KV。
 
 本地：
 
@@ -157,3 +162,24 @@ npm run deploy:production:dry
 Worker 日志中的 `oss_upload_failed` 区分 `phase: request`（网络或运行时异常，记录 `errorType`）和 `phase: response`（记录 OSS HTTP 状态、错误 `code` 和 `requestId`）。日志不包含凭据、签名、图片正文或 OSS 完整响应。客户端仍返回统一的上传失败提示。
 
 上传使用 `redirect: manual` 并拒绝非成功响应，包括 3xx，不向重定向目标发送签名头。项目当前 workerd 运行时不接受 `redirect: error`，会在构造请求时立即抛出 TypeError；回归测试使用实际运行时的 Request 构造器验证此行为边界。
+
+## iClass 签到服务请求签名
+
+预约模块的 `checkin-service.ts` 提供 `enqueueCheckinExecution`，通用 HMAC 签名位于 `src/infrastructure/hmac.ts`。`iclass-checkin` Workflow 到点后以 `{reservationId,attemptId}` 调用 Go 服务的 `POST /internal/checkin-executions`；Go 服务使用 API Token 查询预约详情并回传结果。具体契约见 `docs/RESERVATIONS.md`。
+
+本地开发时，`wrangler.jsonc` 顶层 `vars.ICLASS_SERVICE_BASE_URL` 指向本机 Go 服务（当前 `http://127.0.0.1:8020`）。复制示例文件并将密钥改为与 Go 服务 `ICLASS_SERVICE_SECRET` 相同的值：
+
+```sh
+cp .dev.vars.example .dev.vars
+npm run dev
+```
+
+启动 Go 服务时也需让其实际监听 `:8020`（例如将 `LISTEN_ADDR=:8020` 导入进程环境）；若监听其他端口，同步修改顶层 `vars.ICLASS_SERVICE_BASE_URL`。
+
+`.dev.vars` 已被 Git 忽略；本地密钥不会自动同步到生产。生产 URL 使用 `wrangler.jsonc` 的 `env.production.vars.ICLASS_SERVICE_BASE_URL` 普通变量；生产密钥单独存为 Worker secret：
+
+```sh
+npx wrangler secret put ICLASS_SERVICE_SECRET --env production
+```
+
+Go 签到服务配置相同的 `ICLASS_SERVICE_SECRET`。两边时钟需保持在三分钟内；服务侧按尝试 ID 在当前进程去重，Workflow 负责在回调丢失或进程重启后重派发。

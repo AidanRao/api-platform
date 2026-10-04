@@ -3,13 +3,13 @@ import { describe, expect, it } from "vitest";
 import type {
   AccessPolicy,
   AccessPolicyPatch,
-} from "../src/domains/buaa-classhopper/access-policy.schema";
+} from "../src/domains/buaa-classhopper/access-policy/schema";
 import {
   AccessPolicyMutationError,
   applyAccessPolicyPatch,
   nextRevision,
   RevisionConflictError,
-} from "../src/domains/buaa-classhopper/access-policy.service";
+} from "../src/domains/buaa-classhopper/access-policy/service";
 
 const now = new Date("2026-09-10T04:00:00.000Z");
 const policy: AccessPolicy = {

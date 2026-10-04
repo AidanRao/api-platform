@@ -4,8 +4,8 @@ import {
   type AccessPolicyPatch,
   formatAccessPolicyIssues,
   parseRevision,
-} from "./access-policy.schema";
-import { readAccessPolicy, writeAccessPolicy } from "./access-policy.repository";
+} from "./schema";
+import { readAccessPolicy, writeAccessPolicy } from "./repository";
 
 const SHANGHAI_UTC_OFFSET_MS = 8 * 60 * 60 * 1000;
 

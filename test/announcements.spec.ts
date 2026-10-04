@@ -39,6 +39,22 @@ beforeEach(async () => {
 });
 
 describe("announcements API and D1", () => {
+  it("generates Shanghai-date announcement IDs and retries an ID collision", async () => {
+    now = new Date("2026-09-22T16:30:00.000Z");
+    const first = await create();
+    expect(first.id).toMatch(/^ANCE-20260923-[0-9A-Z]{10}$/);
+    const nextId = "ANCE-20260923-ABCDEFGHIJ";
+    const generated: string[] = [];
+    const repo = new AnnouncementRepository(env.API_PLATFORM_DB, "buaa-classhopper", (prefix, date, timeZone) => {
+      expect([prefix, date?.toISOString(), timeZone]).toEqual(["ANCE", now.toISOString(), "Asia/Shanghai"]);
+      const id = generated.length ? nextId : first.id;
+      generated.push(id);
+      return id;
+    });
+    const second = await repo.create({ title: "第二条", content: "正文", isPinned: false, coverUrl: null, tags: [] }, now.toISOString());
+    expect(second.id).toBe(nextId);
+    expect(generated).toHaveLength(2);
+  });
   it("provides scoped tag directories with deterministic counts and immediate lifecycle changes", async () => {
     const anonymous = createApp();
     const directory = async (url = `${publicPath}/tags`) => {
