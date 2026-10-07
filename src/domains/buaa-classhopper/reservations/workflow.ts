@@ -1,9 +1,9 @@
 import { WorkflowEntrypoint, type WorkflowEvent, type WorkflowStep } from "cloudflare:workers";
 
 import { ReservationRepository } from "./repository";
-import { enqueueCheckinExecution } from "./checkin-service";
+import { executeCheckin } from "./checkin-service";
 import { CHECKIN_TIMEOUT_SECONDS, MAX_CHECKIN_RETRIES } from "./checkin-policy";
-import { retryDelay } from "./timing";
+import { checkinResultSchema } from "./schema";
 
 type Params = { reservationId: string; version: number };
 const minute = 60_000;
@@ -13,7 +13,6 @@ type CheckinEnv = Env & { ICLASS_SERVICE_SECRET: string };
 export class IclassCheckinWorkflow extends WorkflowEntrypoint<CheckinEnv, Params> {
   override async run(event: WorkflowEvent<Params>, step: WorkflowStep): Promise<void> {
     const { reservationId, version } = event.payload;
-    const callbackTimeout = CHECKIN_TIMEOUT_SECONDS * 1000;
     const repository = new ReservationRepository(this.env.API_PLATFORM_DB);
     const load = async () => snapshot(await repository.get(reservationId));
     const initial = await step.do("load reservation", load);
@@ -66,38 +65,17 @@ export class IclassCheckinWorkflow extends WorkflowEntrypoint<CheckinEnv, Params
         snapshot(await repository.beginAttempt(reservationId, version, new Date())));
       if (!attempt?.activeAttemptId) return;
       const attemptId = attempt.activeAttemptId;
-      const timeoutAt = Date.parse(attempt.updatedAt) + callbackTimeout;
       console.info(JSON.stringify({ message: "check-in attempt started", reservationId, attemptId }));
-      for (let delivery = 0; delivery < 100; delivery += 1) {
-        const latest = await step.do(`before-delivery-${cycle}-${delivery}`, load);
-        if (!latest || latest.scheduleVersion !== version || latest.status !== "IN_PROGRESS" ||
-          latest.activeAttemptId !== attemptId || latest.resultCode !== null) break;
-        if (Date.now() >= deadline) break;
-        if (Date.now() >= timeoutAt) {
-          await step.do(`callback-timeout-${cycle}`, async () => {
-            await repository.timeoutAttempt(reservationId, attemptId, new Date());
-          });
-          break;
-        }
-        await step.do(`deliver-${cycle}-${delivery}`, async () => {
-          try {
-            const response = await enqueueCheckinExecution(this.env.ICLASS_SERVICE_BASE_URL,
-              this.env.ICLASS_SERVICE_SECRET, reservationId, attemptId);
-            if (response.status !== 202) throw new Error(`check-in service returned HTTP ${response.status}`);
-            const payload = await response.json() as { code?: number; success?: boolean; data?: { attemptId?: string } };
-            if (payload.code !== 0 || payload.success !== true || payload.data?.attemptId !== attemptId) {
-              throw new Error("check-in service returned an invalid acknowledgement");
-            }
-            console.info(JSON.stringify({ message: "check-in delivery accepted", reservationId, attemptId }));
-          } catch (error) {
-            console.error(JSON.stringify({ message: "check-in delivery failed", reservationId, attemptId,
-              error: error instanceof Error ? error.message : String(error) }));
-          }
-        });
-        const delay = retryDelay(delivery + 1);
-        await step.sleep(`callback-watch-${cycle}-${delivery}`,
-          Math.min(delay, Math.max(1, Math.min(deadline, timeoutAt) - Date.now())));
-      }
+      const resultJson = await step.do(`execute-${cycle}`, {
+        retries: { limit: 0, delay: 1_000 }, timeout: (CHECKIN_TIMEOUT_SECONDS + 5) * 1000,
+      }, async () => JSON.stringify(await executeCheckin(this.env.ICLASS_SERVICE_BASE_URL,
+        this.env.ICLASS_SERVICE_SECRET, reservationId, attemptId)));
+      const result = checkinResultSchema.parse(JSON.parse(resultJson));
+      console.info(JSON.stringify({ message: "check-in attempt completed", reservationId, attemptId,
+        status: result.status, code: result.code }));
+      await step.do(`complete-${cycle}`, async () => {
+        await repository.completeAttempt(reservationId, result, new Date());
+      });
     }
     throw new Error("check-in workflow exceeded its attempt limit");
   }
@@ -108,7 +86,7 @@ function snapshot(value: Awaited<ReturnType<ReservationRepository["get"]>>) {
   return {
     id: value.id, status: value.status, scheduleVersion: value.scheduleVersion,
     classEndTime: value.course.classEndTime, nextAttemptAt: value.nextAttemptAt,
-    attemptCount: value.attemptCount, activeAttemptId: value.activeAttemptId, updatedAt: value.updatedAt,
+    activeAttemptId: value.activeAttemptId,
     resultCode: value.resultCode, resultMessage: value.resultMessage,
   };
 }
@@ -151,7 +129,8 @@ export async function terminateWorkflow(env: Env, instanceId: string | null): Pr
 
 export async function reconcileWorkflows(env: Env): Promise<void> {
   const repository = new ReservationRepository(env.API_PLATFORM_DB);
-  const timeoutMs = CHECKIN_TIMEOUT_SECONDS * 1000;
+  // Leave time for the 60-second request and its D1 result update to finish.
+  const recoveryMs = (CHECKIN_TIMEOUT_SECONDS + 15) * 1000;
   let afterId = "";
   while (true) {
     const page = await repository.active(afterId);
@@ -163,7 +142,7 @@ export async function reconcileWorkflows(env: Env): Promise<void> {
         continue;
       }
       if (reservation.status === "IN_PROGRESS" && reservation.activeAttemptId && reservation.resultCode === null &&
-        Date.now() >= Date.parse(reservation.updatedAt) + timeoutMs) {
+        Date.now() >= Date.parse(reservation.updatedAt) + recoveryMs) {
         await repository.timeoutAttempt(reservation.id, reservation.activeAttemptId, new Date());
       }
       if (!reservation.workflowInstanceId) {

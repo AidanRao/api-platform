@@ -165,7 +165,7 @@ Worker 日志中的 `oss_upload_failed` 区分 `phase: request`（网络或运�
 
 ## iClass 签到服务请求签名
 
-预约模块的 `checkin-service.ts` 提供 `enqueueCheckinExecution`，通用 HMAC 签名位于 `src/infrastructure/hmac.ts`。`iclass-checkin` Workflow 到点后以 `{reservationId,attemptId}` 调用 Go 服务的 `POST /internal/checkin-executions`；Go 服务使用 API Token 查询预约详情并回传结果。具体契约见 `docs/RESERVATIONS.md`。
+预约模块的 `checkin-service.ts` 提供 `executeCheckin`，通用 HMAC 签名位于 `src/infrastructure/hmac.ts`。`iclass-checkin` Workflow 到点后以 `{reservationId,attemptId}` 调用 Go 服务的 `POST /internal/checkin-executions`；Go 服务使用只读 API Token 查询预约详情，并在同一 HTTP 响应中返回结果。具体契约见 `docs/RESERVATIONS.md`。
 
 本地开发时，`wrangler.jsonc` 顶层 `vars.ICLASS_SERVICE_BASE_URL` 指向本机 Go 服务（当前 `http://127.0.0.1:8020`）。复制示例文件并将密钥改为与 Go 服务 `ICLASS_SERVICE_SECRET` 相同的值：
 
@@ -182,4 +182,4 @@ npm run dev
 npx wrangler secret put ICLASS_SERVICE_SECRET --env production
 ```
 
-Go 签到服务配置相同的 `ICLASS_SERVICE_SECRET`。两边时钟需保持在三分钟内；服务侧按尝试 ID 在当前进程去重，Workflow 负责在回调丢失或进程重启后重派发。
+Go 签到服务配置相同的 `ICLASS_SERVICE_SECRET`。两边时钟需保持在三分钟内；Workflow 负责持久化执行结果和重试，Go 服务在重复执行前先查询课表签到状态。

@@ -5,7 +5,6 @@ export const permissionGroupsByApp = {
       name: "签到预约",
       permissions: [
         { code: "reservations:read", name: "读取签到预约详情" },
-        { code: "reservations:result:write", name: "回传签到结果" },
       ],
     },
   ],

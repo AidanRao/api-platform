@@ -9,6 +9,7 @@ import { AccessDeniedError } from "../src/http/access-auth";
 import { createSsoVerifier } from "../src/http/sso-auth";
 import { generateApiToken, hashApiToken } from "../src/http/api-token";
 import { ReservationRepository } from "../src/domains/buaa-classhopper/reservations/repository";
+import { executeCheckin } from "../src/domains/buaa-classhopper/reservations/checkin-service";
 import { createReservationSchema } from "../src/domains/buaa-classhopper/reservations/schema";
 import { reconcileWorkflows } from "../src/domains/buaa-classhopper/reservations/workflow";
 
@@ -16,13 +17,16 @@ const base = "/api/buaa-classhopper/reservations";
 const detailBase = "/api/token/buaa-classhopper/reservations";
 const tokenAdmin = "/api/admin/buaa-classhopper/api-tokens";
 const reservationAdmin = "/api/admin/buaa-classhopper/reservations";
-const now = new Date("2026-10-02T00:00:00.000Z");
+const now = new Date();
+const classBegin = new Date(now.getTime() + 3 * 24 * 60 * 60_000);
+const classEnd = new Date(classBegin.getTime() + 90 * 60_000);
+const tokenExpiry = new Date(now.getTime() + 365 * 24 * 60 * 60_000).toISOString();
 const sso = async (_request: Request, _issuer: string, _appId: string) => ({ userId: "user-1", clientId: "android" });
 const app = createApp(async () => ({ email: "admin@example.com", subject: "admin-1" }), () => now, undefined, sso);
 const course = {
   id: 12345, courseId: 678, courseName: "高等数学", courseNum: "D211042002",
   classroomName: "B118",
-  classBeginTime: "2026-10-05T09:00:00+08:00", classEndTime: "2026-10-05T10:30:00+08:00",
+  classBeginTime: classBegin.toISOString(), classEndTime: classEnd.toISOString(),
 };
 const input = { loginName: "student123", studentId: "23370001", studentName: "张三", course };
 function call(path: string, method = "GET", body?: unknown, token?: string, target = app) {
@@ -55,7 +59,6 @@ describe("reservations and API tokens", () => {
     expect(await data(response)).toEqual({ groups: [{
       code: "reservations", name: "签到预约", permissions: [
         { code: "reservations:read", name: "读取签到预约详情" },
-        { code: "reservations:result:write", name: "回传签到结果" },
       ],
     }] });
     const apps = defineApps([{ id: "buaa-classhopper", name: "BUAA" }, { id: "other-app", name: "Other" }]);
@@ -72,13 +75,13 @@ describe("reservations and API tokens", () => {
     const repository = new ReservationRepository(env.API_PLATFORM_DB);
     const first = await repository.beginAttempt(created.id, created.scheduleVersion, now);
     expect(first?.activeAttemptId).toBeTruthy();
-    await repository.callback(created.id, {
+    await repository.completeAttempt(created.id, {
       reservationId: created.id, attemptId: first!.activeAttemptId!, status: "FAILED",
       code: 1, message: "第一次失败", data: {},
     }, now);
     const second = await repository.beginAttempt(created.id, created.scheduleVersion, new Date(now.getTime() + 30_000));
     expect(second?.activeAttemptId).not.toBe(first?.activeAttemptId);
-    await repository.callback(created.id, {
+    await repository.completeAttempt(created.id, {
       reservationId: created.id, attemptId: second!.activeAttemptId!, status: "SUCCESS",
       code: 0, message: "签到成功", data: {},
     }, new Date(now.getTime() + 31_000));
@@ -97,7 +100,7 @@ describe("reservations and API tokens", () => {
     const created = await data<{ id: string; scheduleVersion: number }>(await call(base, "POST", input));
     const repository = new ReservationRepository(env.API_PLATFORM_DB);
     const attempt = await repository.beginAttempt(created.id, created.scheduleVersion, now);
-    await repository.callback(created.id, {
+    await repository.completeAttempt(created.id, {
       reservationId: created.id, attemptId: attempt!.activeAttemptId!, status: "SUCCESS",
       code: 0, message: "签到成功", data: {},
     }, new Date(now.getTime() + 1_000));
@@ -112,7 +115,7 @@ describe("reservations and API tokens", () => {
     expect(body.data.events.map((event) => event.kind)).toEqual([
       "SUBMITTED", "SCHEDULED", "ATTEMPT_STARTED", "RESULT_SUCCESS",
     ]);
-    expect(body.data.events.at(-1)?.occurredAt).toBe("2026-10-02T00:00:01.000Z");
+    expect(body.data.events.at(-1)?.occurredAt).toBe(new Date(now.getTime() + 1_000).toISOString());
 
     const other = createApp(async () => ({ email: null, subject: null }), () => now,
       undefined, async () => ({ userId: "user-2", clientId: "android" }));
@@ -126,13 +129,13 @@ describe("reservations and API tokens", () => {
     const created = await call(base, "POST", input);
     expect(created.status).toBe(201);
     const first = await data<{ id: string; userId: string; studentId: string; studentName: string; course: typeof course }>(created);
-    expect(first.id).toMatch(/^RSV-20261002-[0-9A-Z]{10}$/);
+    expect(first.id).toMatch(/^RSV-\d{8}-[0-9A-Z]{10}$/);
     expect(first.userId).toBe("user-1");
     expect(first.studentId).toBe(input.studentId);
     expect(first.studentName).toBe(input.studentName);
     expect(first.course).toMatchObject({ id: "12345", courseId: "678" });
     expect(first.course.classroomName).toBe("B118");
-    expect(first.course.classBeginTime).toBe("2026-10-05T01:00:00.000Z");
+    expect(first.course.classBeginTime).toBe(classBegin.toISOString());
     const repeated = await call(base, "POST", {
       ...input, studentId: "23370002", studentName: "李四", course: { ...course, courseName: "高等数学（新）" },
     });
@@ -144,7 +147,8 @@ describe("reservations and API tokens", () => {
     expect(updated.course.courseName).toBe("高等数学（新）");
     const rescheduled = await data<{ id: string; scheduleVersion: number; nextAttemptAt: string }>(await call(base, "POST", {
       ...input, studentId: "23370002", studentName: "李四",
-      course: { ...course, classBeginTime: "2026-10-05T09:30:00+08:00", classEndTime: "2026-10-05T11:00:00+08:00" },
+      course: { ...course, classBeginTime: new Date(classBegin.getTime() + 30 * 60_000).toISOString(),
+        classEndTime: new Date(classEnd.getTime() + 30 * 60_000).toISOString() },
     }));
     expect(rescheduled).toMatchObject({ id: first.id, scheduleVersion: 2 });
     expect(new Date(rescheduled.nextAttemptAt).getTime()).toBeGreaterThan(new Date(updated.course.classBeginTime).getTime());
@@ -170,14 +174,15 @@ describe("reservations and API tokens", () => {
     const count = await env.API_PLATFORM_DB.prepare("SELECT COUNT(*) AS count FROM buaa_classhopper_reservations").first<{ count: number }>();
     expect(count?.count).toBe(1);
     const late = createApp(async () => ({ email: null, subject: null }),
-      () => new Date("2026-10-05T00:50:00.000Z"), undefined, sso);
+      () => new Date(classBegin.getTime() - 10 * 60_000), undefined, sso);
     const repeated = await call(base, "POST", { ...input, studentId: "changed", studentName: "王五" }, undefined, late);
     expect(repeated.status).toBe(200);
     expect(await data<{ studentId: string; studentName: string }>(repeated))
       .toMatchObject({ studentId: input.studentId, studentName: input.studentName });
     const forgedTime = await call(base, "POST", {
       ...input, studentId: "changed", studentName: "王五", course: { ...course,
-        classBeginTime: "2026-10-06T09:00:00+08:00", classEndTime: "2026-10-06T10:30:00+08:00" },
+        classBeginTime: new Date(classBegin.getTime() + 24 * 60 * 60_000).toISOString(),
+        classEndTime: new Date(classEnd.getTime() + 24 * 60 * 60_000).toISOString() },
     }, undefined, late);
     expect(await data<{ studentId: string; studentName: string }>(forgedTime))
       .toMatchObject({ studentId: input.studentId, studentName: input.studentName });
@@ -187,7 +192,7 @@ describe("reservations and API tokens", () => {
 
   it("retries an ID collision without changing another reservation", async () => {
     const original = await data<{ id: string }>(await call(base, "POST", input));
-    const nextId = "RSV-20261002-0000000000";
+    const nextId = `${original.id.slice(0, -10)}0000000000`;
     const candidates = [original.id, nextId];
     const repository = new ReservationRepository(env.API_PLATFORM_DB, () => candidates.shift()!);
     const created = await repository.createOrUpdate("user-2", createReservationSchema.parse({
@@ -331,7 +336,7 @@ describe("reservations and API tokens", () => {
     expect((await call(`${detailBase}/${reservation.id}`, "GET", undefined, issued.token)).status).toBe(401);
   });
 
-  it("schedules a new reservation and accepts an idempotent authenticated result", async () => {
+  it("schedules a new reservation and stores an idempotent execution result", async () => {
     const created = await data<{ id: string; nextAttemptAt: string; scheduleVersion: number }>(await call(base, "POST", input));
     const target = new Date(created.nextAttemptAt).getTime();
     expect(created.scheduleVersion).toBe(1);
@@ -341,33 +346,79 @@ describe("reservations and API tokens", () => {
     const attempt = await repository.beginAttempt(created.id, 1, now);
     const failed = { reservationId: created.id, attemptId: attempt!.activeAttemptId!,
       status: "FAILED" as const, code: 2003, message: "not open", data: {} };
-    const firstFailure = await repository.callback(created.id, failed, now);
+    const firstFailure = await repository.completeAttempt(created.id, failed, now);
     expect(firstFailure?.nextAttemptAt).toBe(new Date(now.getTime() + 30_000).toISOString());
-    expect((await repository.callback(created.id, failed, new Date(now.getTime() + 5000)))?.nextAttemptAt)
+    expect((await repository.completeAttempt(created.id, failed, new Date(now.getTime() + 5000)))?.nextAttemptAt)
       .toBe(firstFailure?.nextAttemptAt);
     let retry = await repository.beginAttempt(created.id, 1, new Date(now.getTime() + 30_000));
     for (const [wait, elapsed] of [[60_000, 30_000], [120_000, 90_000]] as const) {
-      const failedRetry = await repository.callback(created.id, { ...failed, attemptId: retry!.activeAttemptId! },
+      const failedRetry = await repository.completeAttempt(created.id, { ...failed, attemptId: retry!.activeAttemptId! },
         new Date(now.getTime() + elapsed));
       expect(failedRetry?.nextAttemptAt).toBe(new Date(now.getTime() + elapsed + wait).toISOString());
       retry = await repository.beginAttempt(created.id, 1, new Date(now.getTime() + elapsed + wait));
     }
-    const path = `${detailBase}/${created.id}/result`;
     const result = { reservationId: created.id, attemptId: retry!.activeAttemptId,
-      status: "SUCCESS", code: 0, message: "ok", data: { courseScheduleId: "12345" } };
-    expect((await call(path, "POST", result)).status).toBe(401);
-    const readOnly = await data<{ token: string }>(await call(tokenAdmin, "POST", {
-      name: "read-only", permissions: ["reservations:read"],
-    }));
-    expect((await call(path, "POST", result, readOnly.token)).status).toBe(403);
-    const writer = await data<{ token: string }>(await call(tokenAdmin, "POST", {
-      name: "callback", permissions: ["reservations:result:write"],
-    }));
+      status: "SUCCESS" as const, code: 0, message: "ok", data: { courseScheduleId: "12345" } };
     for (let count = 0; count < 2; count += 1) {
-      const response = await call(path, "POST", result, writer.token);
-      expect(response.status).toBe(200);
-      expect(await data<{ status: string; resultCode: number }>(response)).toMatchObject({ status: "SUCCESS", resultCode: 0 });
+      expect(await repository.completeAttempt(created.id, { ...result, attemptId: result.attemptId! }, now))
+        .toMatchObject({ status: "SUCCESS", resultCode: 0 });
     }
+    expect((await call(`${detailBase}/${created.id}/result`, "POST", result)).status).toBe(404);
+  });
+
+  it("rejects a result from an older attempt after the next attempt starts", async () => {
+    const created = await data<{ id: string; scheduleVersion: number }>(await call(base, "POST", input));
+    const repository = new ReservationRepository(env.API_PLATFORM_DB);
+    const first = await repository.beginAttempt(created.id, created.scheduleVersion, now);
+    await repository.completeAttempt(created.id, { reservationId: created.id, attemptId: first!.activeAttemptId!,
+      status: "FAILED", code: 2003, message: "not open", data: {} }, now);
+    const second = await repository.beginAttempt(created.id, created.scheduleVersion, new Date(now.getTime() + 30_000));
+    const stale = await repository.completeAttempt(created.id, { reservationId: created.id,
+      attemptId: first!.activeAttemptId!, status: "SUCCESS", code: 0, message: "late", data: {} }, now);
+    expect(stale).toMatchObject({ status: "IN_PROGRESS", activeAttemptId: second!.activeAttemptId });
+    expect((await repository.events(created.id))?.filter((event) => event.kind === "RESULT_SUCCESS")).toHaveLength(0);
+  });
+
+  it("invalidates an in-progress attempt when its reservation is rescheduled", async () => {
+    const created = await data<{ id: string; scheduleVersion: number }>(await call(base, "POST", input));
+    const repository = new ReservationRepository(env.API_PLATFORM_DB);
+    const triggered = await repository.triggerNow(created.id, created.scheduleVersion, now);
+    const oldAttempt = await repository.beginAttempt(created.id, triggered!.scheduleVersion, now);
+    const changed = await data<{ scheduleVersion: number; status: string; activeAttemptId: string | null;
+      attemptCount: number }>(await call(base, "POST", { ...input, course: { ...course,
+        classBeginTime: new Date(classBegin.getTime() + 30 * 60_000).toISOString(),
+        classEndTime: new Date(classEnd.getTime() + 30 * 60_000).toISOString(),
+      } }));
+    expect(changed).toMatchObject({ scheduleVersion: triggered!.scheduleVersion + 1,
+      status: "QUEUED", activeAttemptId: null, attemptCount: 0 });
+    const stale = await repository.completeAttempt(created.id, { reservationId: created.id,
+      attemptId: oldAttempt!.activeAttemptId!, status: "SUCCESS", code: 0, message: "late", data: {} }, now);
+    expect(stale?.status).toBe("QUEUED");
+    expect((await repository.events(created.id))?.filter((event) => event.kind === "RESULT_SUCCESS")).toHaveLength(0);
+  });
+
+  it("accepts a synchronous service result and maps transport uncertainty to a retryable failure", async () => {
+    const result = { reservationId: "r_123", attemptId: "r_123:1:1", status: "SUCCESS",
+      code: 0, message: "ok", data: { stuSignStatus: "1" } };
+    const send = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) =>
+      Response.json({ code: 0, success: true, message: "ok", data: result }));
+    expect(await executeCheckin("https://iclass.example.com", "secret", result.reservationId,
+      result.attemptId, send, () => 1_000)).toEqual(result);
+    expect(send).toHaveBeenCalledTimes(1);
+    const request = send.mock.calls[0];
+    expect(String(request?.[0])).toBe("https://iclass.example.com/internal/checkin-executions");
+    expect(request?.[1]?.method).toBe("POST");
+    const timeout = vi.fn(async () => { throw new DOMException("timeout", "TimeoutError"); });
+    expect(await executeCheckin("https://iclass.example.com", "secret", result.reservationId,
+      result.attemptId, timeout)).toMatchObject({ status: "FAILED", code: 408 });
+    const busy = vi.fn(async () => new Response("", { status: 503 }));
+    expect(await executeCheckin("https://iclass.example.com", "secret", result.reservationId,
+      result.attemptId, busy)).toMatchObject({ status: "FAILED", code: 503 });
+    const mismatched = vi.fn(async () => Response.json({ code: 0, success: true, data: {
+      ...result, attemptId: "r_123:1:2",
+    } }));
+    expect(await executeCheckin("https://iclass.example.com", "secret", result.reservationId,
+      result.attemptId, mismatched)).toMatchObject({ status: "FAILED", code: 502 });
   });
 
   it("lets an owner cancel, restore, and permanently delete a reservation", async () => {
@@ -382,7 +433,7 @@ describe("reservations and API tokens", () => {
       .toBe(cancelled.scheduleVersion);
     expect((await call(base, "POST", input)).status).toBe(409);
     const repository = new ReservationRepository(env.API_PLATFORM_DB);
-    expect((await repository.callback(created.id, { reservationId: created.id, attemptId: `${created.id}:1:1`,
+    expect((await repository.completeAttempt(created.id, { reservationId: created.id, attemptId: `${created.id}:1:1`,
       status: "SUCCESS", code: 0, message: "late", data: {} }, now))?.status).toBe("CANCELLED");
     const restored = await data<{ status: string; scheduleVersion: number; nextAttemptAt: string }>(
       await call(`${base}/${created.id}/restore`, "POST"));
@@ -392,14 +443,14 @@ describe("reservations and API tokens", () => {
     const active = await repository.beginAttempt(created.id, restored.scheduleVersion, now);
     expect(active?.status).toBe("IN_PROGRESS");
     expect((await call(`${base}/${created.id}/cancel`, "POST")).status).toBe(409);
-    const waiting = await repository.callback(created.id, { reservationId: created.id,
+    const waiting = await repository.completeAttempt(created.id, { reservationId: created.id,
       attemptId: active!.activeAttemptId!, status: "FAILED", code: 2003, message: "not open", data: {} }, now);
     expect(waiting?.status).toBe("QUEUED");
     const cancelledRetry = await data<{ status: string; scheduleVersion: number }>(
       await call(`${base}/${created.id}/cancel`, "POST"));
     expect(cancelledRetry).toMatchObject({ status: "CANCELLED", scheduleVersion: restored.scheduleVersion + 1 });
     expect((await repository.beginAttempt(created.id, restored.scheduleVersion, now))).toBeNull();
-    expect((await repository.callback(created.id, { reservationId: created.id,
+    expect((await repository.completeAttempt(created.id, { reservationId: created.id,
       attemptId: active!.activeAttemptId!, status: "SUCCESS", code: 0, message: "late", data: {} }, now))?.status)
       .toBe("CANCELLED");
     expect((await call(`${base}/${created.id}`, "DELETE")).status).toBe(200);
@@ -428,12 +479,12 @@ describe("reservations and API tokens", () => {
     const repository = new ReservationRepository(env.API_PLATFORM_DB);
     const afterOldCutoff = new Date(Date.parse(course.classBeginTime) + 11 * 60_000);
     const first = await repository.beginAttempt(created.id, 1, afterOldCutoff);
-    const retryable = await repository.callback(created.id, { reservationId: created.id,
+    const retryable = await repository.completeAttempt(created.id, { reservationId: created.id,
       attemptId: first!.activeAttemptId!, status: "FAILED", code: 2003, message: "not open", data: {} }, afterOldCutoff);
     expect(retryable?.status).toBe("QUEUED");
     const nearEnd = new Date(Date.parse(course.classEndTime) - 20_000);
     const attempt = await repository.beginAttempt(created.id, 1, nearEnd);
-    const result = await repository.callback(created.id, { reservationId: created.id,
+    const result = await repository.completeAttempt(created.id, { reservationId: created.id,
       attemptId: attempt!.activeAttemptId!, status: "FAILED", code: 2003, message: "not open", data: {} }, nearEnd);
     expect(result).toMatchObject({ status: "FAILED", nextAttemptAt: null });
     const other = await data<{ id: string; scheduleVersion: number }>(await call(base, "POST", {
@@ -444,14 +495,14 @@ describe("reservations and API tokens", () => {
 
   it("stops after six retries beyond the first check-in attempt", async () => {
     const created = await data<{ id: string; scheduleVersion: number }>(await call(base, "POST", {
-      ...input, course: { ...course, classEndTime: "2026-10-06T10:30:00+08:00" },
+      ...input, course: { ...course, classEndTime: new Date(classEnd.getTime() + 24 * 60 * 60_000).toISOString() },
     }));
     const repository = new ReservationRepository(env.API_PLATFORM_DB);
     let attemptAt = now;
     for (let number = 1; number <= 7; number += 1) {
       const attempt = await repository.beginAttempt(created.id, created.scheduleVersion, attemptAt);
       expect(attempt).toMatchObject({ status: "IN_PROGRESS", attemptCount: number });
-      const result = await repository.callback(created.id, {
+      const result = await repository.completeAttempt(created.id, {
         reservationId: created.id, attemptId: attempt!.activeAttemptId!,
         status: "FAILED", code: 2003, message: "not open", data: {},
       }, attemptAt);
@@ -468,7 +519,7 @@ describe("reservations and API tokens", () => {
     expect(await repository.beginAttempt(created.id, created.scheduleVersion, attemptAt)).toBeNull();
   });
 
-  it("recovers an in-progress attempt whose callback timed out", async () => {
+  it("recovers an in-progress attempt whose request timed out", async () => {
     const testNow = new Date();
     const currentApp = createApp(async () => ({ email: "admin@example.com", subject: "admin-1" }),
       () => testNow, undefined, sso);
@@ -479,7 +530,7 @@ describe("reservations and API tokens", () => {
     }, undefined, currentApp));
     const repository = new ReservationRepository(env.API_PLATFORM_DB);
     const attempt = await repository.beginAttempt(created.id, created.scheduleVersion,
-      new Date(Date.now() - 61_000));
+      new Date(Date.now() - 76_000));
     expect(attempt?.status).toBe("IN_PROGRESS");
 
     await reconcileWorkflows(env);
@@ -495,7 +546,7 @@ describe("reservations and API tokens", () => {
     const reservation = await data<{ id: string }>(await call(base, "POST", input));
     const original = await data<{ id: string; token: string; name: string; permissions: string[]; expiresAt: string; createdBy: string; createdAt: string }>(
       await call(tokenAdmin, "POST", {
-        name: "iClass service", permissions: ["reservations:read"], expiresAt: "2030-01-01T00:00:00Z",
+        name: "iClass service", permissions: ["reservations:read"], expiresAt: tokenExpiry,
       }),
     );
     const response = await call(`${tokenAdmin}/${original.id}/rotate`, "POST");
@@ -532,7 +583,7 @@ describe("reservations and API tokens", () => {
     expect((await data<{ items: unknown[] }>(await call(tokenAdmin))).items).toEqual([]);
 
     const expiring = await data<{ id: string }>(await call(tokenAdmin, "POST", {
-      name: "expiring", permissions: ["reservations:read"], expiresAt: "2030-01-01T00:00:00Z",
+      name: "expiring", permissions: ["reservations:read"], expiresAt: tokenExpiry,
     }));
     await env.API_PLATFORM_DB.prepare("UPDATE api_tokens SET expires_at = ? WHERE id = ?")
       .bind(now.toISOString(), expiring.id).run();
@@ -545,7 +596,7 @@ describe("reservations and API tokens", () => {
   it("enforces token expiry and permission without leaking a token", async () => {
     const reservation = await data<{ id: string }>(await call(base, "POST", input));
     const expired = await data<{ token: string }>(await call(tokenAdmin, "POST", {
-      name: "expiring", permissions: ["reservations:read"], expiresAt: "2030-01-01T00:00:00Z",
+      name: "expiring", permissions: ["reservations:read"], expiresAt: tokenExpiry,
     }));
     await env.API_PLATFORM_DB.prepare("UPDATE api_tokens SET expires_at = ? WHERE name = ?")
       .bind("2000-01-01T00:00:00.000Z", "expiring").run();

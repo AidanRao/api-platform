@@ -132,6 +132,13 @@ export class ReservationRepository {
     if (!businessKeyConflict) throw new Error("Unable to generate a unique reservation ID");
     const row = await this.db.prepare(`UPDATE buaa_classhopper_reservations
       SET student_id = ?, student_name = ?, course_json = ?, updated_at = ?,
+          status = CASE WHEN json_extract(course_json, '$.classBeginTime') <> ? THEN 'QUEUED' ELSE status END,
+          attempt_count = CASE WHEN json_extract(course_json, '$.classBeginTime') <> ? THEN 0 ELSE attempt_count END,
+          active_attempt_id = CASE WHEN json_extract(course_json, '$.classBeginTime') <> ? THEN NULL ELSE active_attempt_id END,
+          result_code = CASE WHEN json_extract(course_json, '$.classBeginTime') <> ? THEN NULL ELSE result_code END,
+          result_message = CASE WHEN json_extract(course_json, '$.classBeginTime') <> ? THEN NULL ELSE result_message END,
+          result_data_json = CASE WHEN json_extract(course_json, '$.classBeginTime') <> ? THEN NULL ELSE result_data_json END,
+          completed_at = CASE WHEN json_extract(course_json, '$.classBeginTime') <> ? THEN NULL ELSE completed_at END,
           schedule_version = CASE WHEN schedule_version > 0 AND json_extract(course_json, '$.classBeginTime') <> ?
             THEN schedule_version + 1 ELSE schedule_version END,
           workflow_instance_id = CASE WHEN schedule_version > 0 AND json_extract(course_json, '$.classBeginTime') <> ?
@@ -142,9 +149,12 @@ export class ReservationRepository {
             THEN json_insert(events_json, '$[#]', json_object(
               'kind', 'RESCHEDULED', 'scheduleVersion', schedule_version + 1,
               'occurredAt', ?, 'scheduledFor', ?)) ELSE events_json END
-      WHERE user_id = ? AND login_name = ? AND course_schedule_id = ? AND status <> 'CANCELLED'
+      WHERE user_id = ? AND login_name = ? AND course_schedule_id = ? AND status IN ('QUEUED', 'IN_PROGRESS')
         AND json_extract(course_json, '$.classBeginTime') > ?
       RETURNING ${columns}`).bind(input.studentId, input.studentName, courseJson, timestamp,
+        input.course.classBeginTime, input.course.classBeginTime, input.course.classBeginTime,
+        input.course.classBeginTime, input.course.classBeginTime, input.course.classBeginTime,
+        input.course.classBeginTime,
         input.course.classBeginTime, input.course.classBeginTime, input.course.classBeginTime,
         firstAttemptAt, input.course.classBeginTime, timestamp, firstAttemptAt,
         ...key,
@@ -248,17 +258,13 @@ export class ReservationRepository {
     return row ? decode(row) : null;
   }
 
-  async callback(id: string, result: CheckinResult, now: Date) {
+  async completeAttempt(id: string, result: CheckinResult, now: Date) {
     const current = await this.get(id);
     if (!current) return null;
-    const parts = result.attemptId.split(':');
-    const version = Number(parts.at(-2));
-    const attemptNumber = Number(parts.at(-1));
-    if (parts.length !== 3 || parts[0] !== id || version !== current.scheduleVersion ||
-      !Number.isInteger(attemptNumber) || attemptNumber < 1 || attemptNumber > current.attemptCount) return current;
-    if (current.status === 'SUCCESS' || current.status === 'CANCELLED') return current;
-    if (result.status === 'FAILED' && (current.status !== 'IN_PROGRESS' || result.attemptId !== current.activeAttemptId)) return current;
-    if (result.status === 'FAILED' && current.resultCode !== null) return current;
+    if (result.reservationId !== id || current.status !== 'IN_PROGRESS' ||
+      result.attemptId !== `${id}:${current.scheduleVersion}:${current.attemptCount}` ||
+      current.activeAttemptId !== result.attemptId || current.resultCode !== null) return current;
+    const version = current.scheduleVersion;
     const retryAt = result.status === 'FAILED' && current.attemptCount <= MAX_CHECKIN_RETRIES
       ? new Date(now.getTime() + retryDelay(current.attemptCount)) : null;
     const deadline = new Date(current.course.classEndTime).getTime();
@@ -272,18 +278,18 @@ export class ReservationRepository {
           next_attempt_at = ?,
           updated_at = ?,
           events_json = json_insert(events_json, '$[#]', json(?))
-      WHERE id = ? AND schedule_version = ? AND status IN ('QUEUED', 'IN_PROGRESS', 'FAILED')
-        AND (? = 'SUCCESS' OR (status = 'IN_PROGRESS' AND result_code IS NULL))
+      WHERE id = ? AND schedule_version = ? AND status = 'IN_PROGRESS'
+        AND active_attempt_id = ? AND result_code IS NULL
       RETURNING ${columns}`).bind(status, result.code, result.message,
         JSON.stringify(result.data), terminal ? 1 : 0, now.toISOString(), nextAttemptAt,
         now.toISOString(), eventJson(result.status === "SUCCESS" ? "RESULT_SUCCESS" : "RESULT_FAILED",
           version, now.toISOString(), { referenceId: result.attemptId, scheduledFor: nextAttemptAt, message: result.message }),
-        id, version, result.status).first<Row>();
+        id, version, result.attemptId).first<Row>();
     return row ? decode(row) : this.get(id);
   }
 
   timeoutAttempt(id: string, attemptId: string, now: Date) {
-    return this.callback(id, {
+    return this.completeAttempt(id, {
       reservationId: id, attemptId, status: "FAILED", code: 408,
       message: `等待签到结果超过 ${CHECKIN_TIMEOUT_SECONDS} 秒`, data: {},
     }, now);

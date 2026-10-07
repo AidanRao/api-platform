@@ -2,14 +2,14 @@ import { zValidator } from "@hono/zod-validator";
 import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
 
-import { apiTokenAuth, createApiTokenRoutes } from "../../../http/api-token";
+import { createApiTokenRoutes } from "../../../http/api-token";
 import { ApiError } from "../../../http/errors";
 import { errorResponse, methodNotAllowed, successResponse } from "../../../http/response";
 import { ssoAuth, type SsoVerifier } from "../../../http/sso-auth";
 import type { AppEnv } from "../../../http/types";
 import { ReservationRepository } from "./repository";
 import { MAX_RESERVATIONS_PER_USER, scheduledTime } from "./checkin-policy";
-import { adminReservationQuerySchema, checkinResultSchema, createReservationSchema, reservationQuerySchema } from "./schema";
+import { adminReservationQuerySchema, createReservationSchema, reservationQuerySchema } from "./schema";
 import { ensureWorkflow, terminateWorkflow } from "./workflow";
 
 const appId = "buaa-classhopper";
@@ -136,19 +136,6 @@ export function createApiTokenReservationRoutes() {
     if (!value) throw new ApiError("预约不存在", 404);
     return successResponse("获取成功", value, 200, { "Cache-Control": "no-store" });
   });
-  tokenRoutes.routes.post("/:id/result", apiTokenAuth(appId, "reservations:result:write"),
-    bodyLimit({ maxSize: 16 * 1024, onError: () => errorResponse("请求体不能超过 16 KiB", 413) }),
-    zValidator("json", checkinResultSchema, (result) => {
-      if (!result.success) return invalid();
-    }), async (context) => {
-      const result = context.req.valid("json");
-      const id = context.req.param("id")!;
-      if (result.reservationId !== id) throw new ApiError("预约 ID 不匹配", 400);
-      const value = await new ReservationRepository(context.env.API_PLATFORM_DB).callback(id, result, new Date());
-      if (!value) throw new ApiError("预约不存在", 404);
-      return successResponse("签到结果已接收", value, 200, { "Cache-Control": "no-store" });
-    });
   tokenRoutes.routes.all("/:id", () => methodNotAllowed("GET"));
-  tokenRoutes.routes.all("/:id/result", () => methodNotAllowed("POST"));
   return tokenRoutes.routes;
 }

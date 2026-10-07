@@ -13,7 +13,6 @@ const metadata = {
 const catalog = { groups: [{
   code: "reservations", name: "签到预约", permissions: [
     { code: "reservations:read", name: "读取签到预约详情" },
-    { code: "reservations:result:write", name: "回传签到结果" },
   ],
 }] };
 
@@ -174,11 +173,10 @@ describe("API Token management", () => {
   it("uses the catalog names on the token list", async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) =>
       ok(String(input).endsWith("/permissions") ? catalog
-        : { items: [{ ...metadata, permissions: ["reservations:read", "reservations:result:write"] }] }));
+        : { items: [{ ...metadata, permissions: ["reservations:read"] }] }));
     vi.stubGlobal("fetch", fetchMock);
     renderAdmin("/admin/buaa-classhopper/api-tokens");
     expect(await screen.findByText("读取签到预约详情")).not.toBeNull();
-    expect(screen.getByText("回传签到结果")).not.toBeNull();
   });
 
   it("retries a failed permission catalog request", async () => {

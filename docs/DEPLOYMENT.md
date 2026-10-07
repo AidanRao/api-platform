@@ -330,7 +330,7 @@ npm run deploy:production
 
 仓库的 `.github/workflows/deploy.yml` 在每次推送到 `main` 时运行，也可通过 GitHub Actions 页面手动触发。当前只有 production 一个部署目标，没有按分支选择环境。工作流依次执行类型检查、测试、production 构建与 dry-run、生产 D1 迁移，最后部署同一份构建产物。若迁移命令失败，仅当重新查询确认没有待应用迁移时才继续发布。
 
-签到调度使用 `iclass-checkin` Workflow。部署前先升级 Go `iclass-service` 至支持 `attemptId` 与结果回调的版本，在 `wrangler.jsonc` 的 `env.production.vars` 配置普通变量 `ICLASS_SERVICE_BASE_URL`，并用 `npx wrangler secret put ICLASS_SERVICE_SECRET --env production` 配置密钥；Go 服务使用相同的 `ICLASS_SERVICE_SECRET`，其 `API_PLATFORM_ACCESS_TOKEN` 需包含 `reservations:read` 和 `reservations:result:write`。预约记录的原始建表脚本包含签到节点的 `events_json` 字段。详见 [预约与签到](./RESERVATIONS.md)。
+签到调度使用 `iclass-checkin` Workflow。Go `iclass-service` 同步返回签到结果；两端需使用同一协议。在 `wrangler.jsonc` 的 `env.production.vars` 配置普通变量 `ICLASS_SERVICE_BASE_URL`，并用 `npx wrangler secret put ICLASS_SERVICE_SECRET --env production` 配置密钥；Go 服务使用相同的 `ICLASS_SERVICE_SECRET`，其 `API_PLATFORM_ACCESS_TOKEN` 只需 `reservations:read`。预约记录的原始建表脚本包含签到节点的 `events_json` 字段。详见 [预约与签到](./RESERVATIONS.md)。
 
 在 GitHub 仓库的 **Settings > Secrets and variables > Actions** 中配置以下 Repository secrets：
 
