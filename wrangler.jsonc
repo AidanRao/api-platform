@@ -65,7 +65,7 @@
 				"ENVIRONMENT": "production",
 				"ACCESS_BYPASS_LOCAL": "false",
 				"SSO_ISSUER": "https://sso.aidanrao.top",
-				"ICLASS_SERVICE_BASE_URL": "https://iclass.aidanrao.top",
+				"ICLASS_SERVICE_BASE_URL": "http://39.105.96.112:8020",
 				"OSS_BUCKET": "aidan-space",
 				"OSS_REGION": "cn-beijing",
 				"OSS_PREFIX": "api-platform"
