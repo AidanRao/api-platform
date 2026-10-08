@@ -165,7 +165,7 @@ Worker 日志中的 `oss_upload_failed` 区分 `phase: request`（网络或运�
 
 ## iClass 签到服务请求签名
 
-预约模块的 `checkin-service.ts` 提供 `executeCheckin`，通用 HMAC 签名位于 `src/infrastructure/hmac.ts`。`iclass-checkin` Workflow 到点后以 `{reservationId,attemptId}` 调用 Go 服务的 `POST /internal/checkin-executions`；Go 服务使用只读 API Token 查询预约详情，并在同一 HTTP 响应中返回结果。具体契约见 `docs/RESERVATIONS.md`。
+预约模块的 `checkin-client.ts` 集中读取服务配置并选择本地直连或生产 VPC 绑定；`checkin-service.ts` 负责请求签名和响应解析，通用 HMAC 签名位于 `src/infrastructure/hmac.ts`。`iclass-checkin` Workflow 到点后以 `{reservationId,attemptId}` 调用 Go 服务的 `POST /internal/checkin-executions`；Go 服务使用只读 API Token 查询预约详情，并在同一 HTTP 响应中返回结果。具体契约见 `docs/RESERVATIONS.md`。
 
 本地开发时，`wrangler.jsonc` 顶层 `vars.ICLASS_SERVICE_BASE_URL` 指向本机 Go 服务（当前 `http://127.0.0.1:8020`）。复制示例文件并将密钥改为与 Go 服务 `ICLASS_SERVICE_SECRET` 相同的值：
 
@@ -176,7 +176,7 @@ npm run dev
 
 启动 Go 服务时也需让其实际监听 `:8020`（例如将 `LISTEN_ADDR=:8020` 导入进程环境）；若监听其他端口，同步修改顶层 `vars.ICLASS_SERVICE_BASE_URL`。
 
-`.dev.vars` 已被 Git 忽略；本地密钥不会自动同步到生产。生产 URL 使用 `wrangler.jsonc` 的 `env.production.vars.ICLASS_SERVICE_BASE_URL` 普通变量；生产密钥单独存为 Worker secret：
+`.dev.vars` 已被 Git 忽略；本地密钥不会自动同步到生产。生产签到请求使用 `env.production.vpc_services` 中的 `ICLASS_PRIVATE_API` 绑定，其 Service ID 已配置在 `wrangler.jsonc`。先确认 Go 服务器上的 Cloudflare Tunnel 正常运行、VPC Service 指向服务器本机 `127.0.0.1:8020`，再构建和部署生产 Worker。生产 `ICLASS_SERVICE_BASE_URL=http://localhost` 只提供 HTTP Host 和请求路径，实际连接目标由 VPC Service 决定；不需要公开的 iClass 域名。本地开发仍使用顶层配置中的普通 `fetch()`。详见 [Workers VPC Service 文档](https://developers.cloudflare.com/workers-vpc/configuration/vpc-services/)。生产密钥单独存为 Worker secret：
 
 ```sh
 npx wrangler secret put ICLASS_SERVICE_SECRET --env production

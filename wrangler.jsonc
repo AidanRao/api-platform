@@ -65,7 +65,7 @@
 				"ENVIRONMENT": "production",
 				"ACCESS_BYPASS_LOCAL": "false",
 				"SSO_ISSUER": "https://sso.aidanrao.top",
-				"ICLASS_SERVICE_BASE_URL": "http://39.105.96.112:8020",
+				"ICLASS_SERVICE_BASE_URL": "http://localhost",
 				"OSS_BUCKET": "aidan-space",
 				"OSS_REGION": "cn-beijing",
 				"OSS_PREFIX": "api-platform"
@@ -74,6 +74,12 @@
 				{
 					"binding": "API_PLATFORM_KV",
 					"id": "ae082c6018fd43b0bb6c62dfe84219d7"
+				}
+			],
+			"vpc_services": [
+				{
+					"binding": "ICLASS_PRIVATE_API",
+					"service_id": "01a11a50-2df6-77f1-b72f-b780c0b15646"
 				}
 			],
 			"routes": [

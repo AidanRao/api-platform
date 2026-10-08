@@ -9,6 +9,7 @@ import { AccessDeniedError } from "../src/http/access-auth";
 import { createSsoVerifier } from "../src/http/sso-auth";
 import { generateApiToken, hashApiToken } from "../src/http/api-token";
 import { ReservationRepository } from "../src/domains/buaa-classhopper/reservations/repository";
+import { createCheckinClient } from "../src/domains/buaa-classhopper/reservations/checkin-client";
 import { executeCheckin } from "../src/domains/buaa-classhopper/reservations/checkin-service";
 import { createReservationSchema } from "../src/domains/buaa-classhopper/reservations/schema";
 import { reconcileWorkflows } from "../src/domains/buaa-classhopper/reservations/workflow";
@@ -419,6 +420,20 @@ describe("reservations and API tokens", () => {
     } }));
     expect(await executeCheckin("https://iclass.example.com", "secret", result.reservationId,
       result.attemptId, mismatched)).toMatchObject({ status: "FAILED", code: 502 });
+  });
+
+  it("uses the private service binding for production check-ins", async () => {
+    const result = { reservationId: "r_123", attemptId: "r_123:1:1", status: "SUCCESS",
+      code: 0, message: "ok", data: {} };
+    const privateFetch = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) =>
+      Response.json({ code: 0, success: true, data: result }));
+    const config = { ENVIRONMENT: "production", ICLASS_SERVICE_BASE_URL: "http://localhost",
+      ICLASS_SERVICE_SECRET: "secret" } as const;
+    const checkin = createCheckinClient({ ...config, ICLASS_PRIVATE_API: { fetch: privateFetch } });
+    expect(await checkin(result.reservationId, result.attemptId)).toEqual(result);
+    expect(String(privateFetch.mock.calls[0]?.[0])).toBe("http://localhost/internal/checkin-executions");
+    expect(privateFetch.mock.calls[0]?.[1]?.method).toBe("POST");
+    expect(() => createCheckinClient(config)).toThrow("ICLASS_PRIVATE_API");
   });
 
   it("lets an owner cancel, restore, and permanently delete a reservation", async () => {

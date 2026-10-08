@@ -1,7 +1,7 @@
 import { WorkflowEntrypoint, type WorkflowEvent, type WorkflowStep } from "cloudflare:workers";
 
 import { ReservationRepository } from "./repository";
-import { executeCheckin } from "./checkin-service";
+import { createCheckinClient } from "./checkin-client";
 import { CHECKIN_TIMEOUT_SECONDS, MAX_CHECKIN_RETRIES } from "./checkin-policy";
 import { checkinResultSchema } from "./schema";
 
@@ -55,9 +55,7 @@ export class IclassCheckinWorkflow extends WorkflowEntrypoint<CheckinEnv, Params
         if (next.getTime() > Date.now()) await step.sleepUntil(`retry-delay-${cycle}`, next);
       }
 
-      if (!this.env.ICLASS_SERVICE_BASE_URL || !this.env.ICLASS_SERVICE_SECRET) {
-        throw new Error("check-in service configuration is missing: ICLASS_SERVICE_BASE_URL or ICLASS_SERVICE_SECRET");
-      }
+      const checkin = createCheckinClient(this.env);
 
       let attempt = current.status === "IN_PROGRESS" && current.activeAttemptId && current.resultCode === null
         ? current : null;
@@ -68,8 +66,7 @@ export class IclassCheckinWorkflow extends WorkflowEntrypoint<CheckinEnv, Params
       console.info(JSON.stringify({ message: "check-in attempt started", reservationId, attemptId }));
       const resultJson = await step.do(`execute-${cycle}`, {
         retries: { limit: 0, delay: 1_000 }, timeout: (CHECKIN_TIMEOUT_SECONDS + 5) * 1000,
-      }, async () => JSON.stringify(await executeCheckin(this.env.ICLASS_SERVICE_BASE_URL,
-        this.env.ICLASS_SERVICE_SECRET, reservationId, attemptId)));
+      }, async () => JSON.stringify(await checkin(reservationId, attemptId)));
       const result = checkinResultSchema.parse(JSON.parse(resultJson));
       console.info(JSON.stringify({ message: "check-in attempt completed", reservationId, attemptId,
         status: result.status, code: result.code }));
