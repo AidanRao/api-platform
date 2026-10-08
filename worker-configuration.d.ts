@@ -10,7 +10,7 @@ interface __BaseEnv_Env {
 	ENVIRONMENT: "production" | "development";
 	ACCESS_BYPASS_LOCAL: "false";
 	SSO_ISSUER: "https://sso.aidanrao.top" | "https://sso-test.aidanrao.top";
-	ICLASS_SERVICE_BASE_URL: "https://iclass.aidanrao.top" | "http://127.0.0.1:8020";
+	ICLASS_SERVICE_BASE_URL: "http://39.105.96.112:8020" | "http://127.0.0.1:8020";
 	OSS_BUCKET: "aidan-space" | "";
 	OSS_REGION: "cn-beijing" | "";
 	OSS_PREFIX: "api-platform";
@@ -30,7 +30,7 @@ declare namespace Cloudflare {
 		ENVIRONMENT: "production";
 		ACCESS_BYPASS_LOCAL: "false";
 		SSO_ISSUER: "https://sso.aidanrao.top";
-		ICLASS_SERVICE_BASE_URL: "https://iclass.aidanrao.top";
+		ICLASS_SERVICE_BASE_URL: "http://39.105.96.112:8020";
 		OSS_BUCKET: "aidan-space";
 		OSS_REGION: "cn-beijing";
 		OSS_PREFIX: "api-platform";
