@@ -4,7 +4,6 @@ import {
   type AccessPolicyPatch,
 } from "../../../../../src/domains/buaa-classhopper/access-policy/schema";
 
-const PUBLIC_POLICY_URL = "/api/buaa-classhopper/v1/iclass/access-policy";
 const ADMIN_POLICY_URL = "/api/admin/buaa-classhopper/v1/iclass/access-policy";
 
 export class PolicyApiError extends Error {
@@ -19,7 +18,7 @@ export class PolicyApiError extends Error {
 }
 
 export async function fetchPolicy(signal?: AbortSignal): Promise<AccessPolicy> {
-  const response = await fetch(PUBLIC_POLICY_URL, {
+  const response = await fetch(ADMIN_POLICY_URL, {
     cache: "no-store",
     headers: { Accept: "application/json" },
     signal,
