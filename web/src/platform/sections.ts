@@ -2,6 +2,8 @@ import type { AppDefinition } from "../../../src/apps/schema";
 export interface AdminSection { readonly id: string; readonly label: string }
 const commonSections: readonly AdminSection[] = [
   { id: "announcements", label: "公告管理" },
+  { id: "ads/slots", label: "广告位管理" },
+  { id: "ads/placements", label: "广告投放" },
   { id: "api-tokens", label: "API Token 管理" },
 ];
 const appSections: Readonly<Record<string, readonly AdminSection[]>> = {

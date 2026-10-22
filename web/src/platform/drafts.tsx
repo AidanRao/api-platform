@@ -2,7 +2,7 @@ import { createContext, useContext, useEffect, useRef, useSyncExternalStore, typ
 import { useBlocker } from "react-router";
 import { AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogTitle, AlertDialogDescription, AlertDialogFooter, AlertDialogCancel, AlertDialogAction } from "@/components/ui/alert-dialog";
 
-type Entry = { value: unknown; dirty: boolean; busy: boolean; appId: string };
+type Entry = { value: unknown; dirty: boolean; busy: boolean; appId: string | null };
 class DraftStore {
   entries = new Map<string, Entry>();
   listeners = new Set<() => void>();
@@ -10,11 +10,11 @@ class DraftStore {
   subscribe = (listener: () => void) => { this.listeners.add(listener); return () => { this.listeners.delete(listener); }; };
   snapshot = () => this.version;
   emit() { this.version++; this.listeners.forEach((listener) => listener()); }
-  set<T>(key: string, appId: string, value: T, dirty: boolean, busy = false) {
+  set<T>(key: string, appId: string | null, value: T, dirty: boolean, busy = false) {
     this.entries.set(key, { appId, value, dirty, busy }); this.emit();
   }
   remove(key: string) { this.entries.delete(key); this.emit(); }
-  clearApp(appId: string) { for (const [key, value] of this.entries) if (value.appId === appId) this.entries.delete(key); this.emit(); }
+  clearApp(appId: string | null) { for (const [key, value] of this.entries) if (value.appId === appId) this.entries.delete(key); this.emit(); }
 }
 const Context = createContext<DraftStore | null>(null);
 export function DraftProvider({ children }: { children: ReactNode }) {
@@ -26,7 +26,7 @@ function useStore() {
   if (!store) throw new Error("DraftProvider is missing");
   return store;
 }
-export function useDraft<T>(appId: string, resource: string, id: string, initial: () => T, isDirty: (value: T) => boolean) {
+export function useDraft<T>(appId: string | null, resource: string, id: string, initial: () => T, isDirty: (value: T) => boolean) {
   const store = useStore();
   const key = JSON.stringify([appId, resource, id]);
   useSyncExternalStore(store.subscribe, store.snapshot);
@@ -39,7 +39,10 @@ export function useDraft<T>(appId: string, resource: string, id: string, initial
     store.set(key, appId, updated, isDirty(updated), busy);
   }, () => store.remove(key)] as const;
 }
-const pathApp = (path: string) => /^\/admin\/([^/]+)/.exec(path)?.[1];
+const pathApp = (path: string): string | null => {
+  const segment = /^\/admin\/([^/]+)/.exec(path)?.[1];
+  return !segment || segment === "ads" ? null : segment;
+};
 export function DraftNavigationGuard() {
   const store = useStore();
   useSyncExternalStore(store.subscribe, store.snapshot);
@@ -54,8 +57,8 @@ export function DraftNavigationGuard() {
     return () => window.removeEventListener("beforeunload", protect);
   }, [hasChanges]);
   return <AlertDialog open={blocker.state === "blocked"} onOpenChange={(open) => { if (!open && blocker.state === "blocked") blocker.reset(); }}>
-    <AlertDialogContent><AlertDialogHeader><AlertDialogTitle>离开当前应用？</AlertDialogTitle>
-      <AlertDialogDescription>{busy ? "正在处理请求，请等待完成。" : "当前应用有未保存的更改。离开后这些草稿将被丢弃。"}</AlertDialogDescription></AlertDialogHeader>
+    <AlertDialogContent><AlertDialogHeader><AlertDialogTitle>离开当前管理范围？</AlertDialogTitle>
+      <AlertDialogDescription>{busy ? "正在处理请求，请等待完成。" : "当前管理范围有未保存的更改。离开后这些草稿将被丢弃。"}</AlertDialogDescription></AlertDialogHeader>
       <AlertDialogFooter><AlertDialogCancel>继续编辑</AlertDialogCancel><AlertDialogAction disabled={busy} onClick={() => {
         if (blocker.state !== "blocked") return;
         for (const appId of new Set([...store.entries.values()].map((entry) => entry.appId))) store.clearApp(appId);

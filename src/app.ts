@@ -10,6 +10,7 @@ import {
   verifyAccessRequest,
 } from "./http/access-auth";
 import { serveAdminAsset } from "./http/admin-assets";
+import { createPlatformAdsRoutes } from "./features/ads/routes";
 import { createMediaRoutes } from "./features/media/routes";
 import { methodNotAllowed, successResponse, errorResponse } from "./http/response";
 import type { AppEnv } from "./http/types";
@@ -29,6 +30,7 @@ export function createApp(
   application.get("/api/admin/apps", () => successResponse("获取成功", { items: apps.map(({ id, name }) => ({ id, name })) }, 200, { "Cache-Control": "no-store" }));
   application.all("/api/admin/apps", () => methodNotAllowed("GET"));
   application.route("/api/admin/media", createMediaRoutes(now));
+  application.route("/api/admin/ads", createPlatformAdsRoutes(now));
   mountAppRoutes(application, apps, now, verifySso);
 
   application.notFound(() =>

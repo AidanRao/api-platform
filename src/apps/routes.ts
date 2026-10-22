@@ -1,3 +1,4 @@
+import { createAppAdsRoutes, createPublicAdsRoutes } from "../features/ads/routes";
 import { Hono } from "hono";
 import type { AppEnv } from "../http/types";
 import { createAdminBuaaClasshopperRoutes, createPublicBuaaClasshopperRoutes } from "../domains/buaa-classhopper/access-policy/routes";
@@ -15,6 +16,9 @@ export function mountAppRoutes(router: Hono<AppEnv>, apps: readonly AppDefinitio
     publicRoutes.route("/announcement", createPublicAnnouncementRoutes(app.id));
     adminRoutes.route("/announcement", createAdminAnnouncementRoutes(app.id, now));
     adminRoutes.route("/api-tokens", createAdminApiTokenRoutes(app.id, now));
+
+    publicRoutes.route("/ads", createPublicAdsRoutes(app.id, now));
+    adminRoutes.route("/ads", createAppAdsRoutes(app.id, now));
 
     // BUAA-specific capabilities are mounted only for this registered App.
     if (app.id === "buaa-classhopper") {

@@ -8,9 +8,9 @@
 /admin/
 ```
 
-App 统一在 `src/apps/registry.ts` 维护。所有 App 共享通用能力及管理页框架，各自通过 `/admin/<appId>/` 管理本应用的数据。公告按应用隔离；图片通过平台级 `/api/admin/media/images` 共享上传，不接收 App ID。BUAA 额外提供白名单管理。未来广告将作为与公告并列的通用模块接入。
+App 统一在 `src/apps/registry.ts` 维护。所有 App 共享通用能力及管理页框架，各自通过 `/admin/<appId>/` 管理本应用的数据。公告按应用隔离；图片通过平台级 `/api/admin/media/images` 共享上传，不接收 App ID。BUAA 额外提供白名单管理。广告提供平台共享活动和素材、按 App 管理广告位及投放，支持横幅、轮播、卡片和开屏。
 
-[平台架构、D1 和 OSS 接入](./docs/PLATFORM.md) · [公告 API 与业务规则](./docs/ANNOUNCEMENTS.md)
+[平台架构、D1 和 OSS 接入](./docs/PLATFORM.md) · [公告 API 与业务规则](./docs/ANNOUNCEMENTS.md) · [广告管理与接入](./docs/ADS.md)
 
 白名单页面先在本地暂存新增与删除，只有点击“保存更改”时才调用现有 PATCH 接口。遇到 `409` 会保留草稿、重新读取最新白名单并重算有效差异，不会自动重复提交。
 
@@ -73,6 +73,7 @@ src/
 ├── http/                     # 响应、鉴权、管理页、安全头
 ├── infrastructure/           # OSS 等共享基础设施
 ├── features/
+│   ├── ads/                  # 共享活动、素材发布与 App 广告投放
 │   ├── announcements/        # 通用公告业务
 │   └── media/                # 通用图片上传入口
 └── domains/buaa-classhopper/ # 应用专属 iClass 白名单
@@ -95,7 +96,7 @@ web/
 
 新增 App 只需在 `src/apps/registry.ts` 增加 `id` 和 `name`，随后构建部署即可。App 无需逐个开启公告等通用能力；应用专属扩展才在后端路由装配和前端栏目装配中单独接入。
 
-新增通用能力时，在 `src/features/<capability>/` 与 `web/src/features/<capability>/` 实现业务，并在平台装配处挂载。当前广告未实现，后续采用 App、AdSlot、Campaign、Creative 架构，复用现有 App 身份和 OSS。详见 [平台架构](./docs/PLATFORM.md)。
+新增通用能力时，在 `src/features/<capability>/` 与 `web/src/features/<capability>/` 实现业务，并在平台装配处挂载。广告模块使用平台共享 Campaign、Creative 与 App 隔离的 AdSlot、Placement，复用现有 App 身份和 OSS。详见 [平台架构](./docs/PLATFORM.md)。
 
 ## 本地开发
 
