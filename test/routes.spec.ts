@@ -31,22 +31,55 @@ describe("API routes", () => {
     vi.restoreAllMocks();
   });
 
-  it("returns the public policy without authentication", async () => {
-    await seedPolicy();
+  it.each(["1.5.1", "1.10.0"])(
+    "returns the public policy for supported app version %s",
+    async (version) => {
+      await seedPolicy();
 
-    const response = await request(PUBLIC_ACCESS_POLICY_PATH);
+      const response = await requestPolicy(version);
 
-    expect(response.status).toBe(200);
-    expect(response.headers.get("Cache-Control")).toBe("public, max-age=60");
+      expect(response.status).toBe(200);
+      expect(response.headers.get("Cache-Control")).toBe("public, max-age=60");
+      expect(response.headers.get("Vary")).toBe("X-App-Version");
+      await expect(response.json()).resolves.toEqual({
+        code: 1,
+        msg: "获取成功",
+        data: policy,
+      });
+    },
+  );
+
+  it("rejects an app version below the minimum with an upgrade message", async () => {
+    const response = await requestPolicy("1.5.0");
+
+    expect(response.status).toBe(426);
+    expect(response.headers.get("Cache-Control")).toBe("no-store");
     await expect(response.json()).resolves.toEqual({
-      code: 1,
-      msg: "获取成功",
-      data: policy,
+      code: 0,
+      msg: "当前 App 版本过低，请升级至 1.5.1 或以上版本后使用白名单功能",
+      data: null,
     });
   });
 
+  it.each([undefined, "invalid"])(
+    "rejects a missing or invalid app version %s",
+    async (version) => {
+      const response = await request(PUBLIC_ACCESS_POLICY_PATH, {
+        headers: version === undefined ? {} : { "X-App-Version": version },
+      });
+
+      expect(response.status).toBe(400);
+      expect(response.headers.get("Cache-Control")).toBe("no-store");
+      await expect(response.json()).resolves.toEqual({
+        code: 0,
+        msg: "缺少或无效的 X-App-Version 请求头，请升级至 1.5.1 或以上版本后重试",
+        data: null,
+      });
+    },
+  );
+
   it("returns 503 when the public policy is missing", async () => {
-    const response = await request(PUBLIC_ACCESS_POLICY_PATH);
+    const response = await requestPolicy();
 
     expect(response.status).toBe(503);
     await expect(response.json()).resolves.toEqual({
@@ -63,13 +96,43 @@ describe("API routes", () => {
     );
     vi.spyOn(console, "error").mockImplementation(() => undefined);
 
-    const response = await request(PUBLIC_ACCESS_POLICY_PATH);
+    const response = await requestPolicy();
 
     expect(response.status).toBe(500);
     expect(response.headers.get("Cache-Control")).toBe("no-store");
     await expect(response.json()).resolves.toEqual({
       code: 0,
       msg: "服务器内部错误",
+      data: null,
+    });
+  });
+
+  it("returns the administrator policy without an app version header", async () => {
+    await seedPolicy();
+
+    const response = await request(ADMIN_ACCESS_POLICY_PATH, undefined, true);
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("Cache-Control")).toBe("no-store");
+    await expect(response.json()).resolves.toEqual({
+      code: 1,
+      msg: "获取成功",
+      data: policy,
+    });
+  });
+
+  it("protects the administrator read route even with a supported app version", async () => {
+    await seedPolicy();
+
+    const response = await request(ADMIN_ACCESS_POLICY_PATH, {
+      headers: { "X-App-Version": "1.5.1" },
+    });
+
+    expect(response.status).toBe(401);
+    expect(response.headers.get("Cache-Control")).toBe("no-store");
+    await expect(response.json()).resolves.toEqual({
+      code: 0,
+      msg: "缺少 Cloudflare Access 凭证",
       data: null,
     });
   });
@@ -274,7 +337,7 @@ describe("API routes", () => {
 
   it.each([
     [PUBLIC_ACCESS_POLICY_PATH, "POST", "GET"],
-    [ADMIN_ACCESS_POLICY_PATH, "PUT", "PATCH"],
+    [ADMIN_ACCESS_POLICY_PATH, "PUT", "GET, PATCH"],
   ])("returns 405 for %s with %s", async (path, method, allowed) => {
     const response = await request(path, { method }, true);
 
@@ -294,6 +357,12 @@ describe("API routes", () => {
 
 async function seedPolicy(): Promise<void> {
   await env.API_PLATFORM_KV.put(ACCESS_POLICY_KEY, JSON.stringify(policy));
+}
+
+function requestPolicy(version = "1.5.1"): Promise<Response> {
+  return request(PUBLIC_ACCESS_POLICY_PATH, {
+    headers: { "X-App-Version": version },
+  });
 }
 
 async function request(

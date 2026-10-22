@@ -9,6 +9,12 @@ import {
 } from "../../../http/response";
 import type { AppEnv } from "../../../http/types";
 import {
+  HEADER_APP_VERSION,
+  MIN_ACCESS_POLICY_APP_VERSION,
+  isSupportedAppVersion,
+  parseAppVersion,
+} from "./app-version";
+import {
   accessPolicyPatchSchema,
   formatAccessPolicyIssues,
 } from "./schema";
@@ -32,13 +38,32 @@ export function createPublicBuaaClasshopperRoutes(): Hono<AppEnv> {
   const routes = new Hono<AppEnv>();
 
   routes.get(ACCESS_POLICY_ROUTE_PATH, async (context) => {
+    const version = parseAppVersion(context.req.header(HEADER_APP_VERSION));
+    if (version === null) {
+      return errorResponse(
+        `缺少或无效的 ${HEADER_APP_VERSION} 请求头，请升级至 ${MIN_ACCESS_POLICY_APP_VERSION} 或以上版本后重试`,
+        400,
+        { headers: { "Cache-Control": "no-store" } },
+      );
+    }
+    if (!isSupportedAppVersion(version)) {
+      return errorResponse(
+        `当前 App 版本过低，请升级至 ${MIN_ACCESS_POLICY_APP_VERSION} 或以上版本后使用白名单功能`,
+        426,
+        { headers: { "Cache-Control": "no-store" } },
+      );
+    }
+
     const policy = await readAccessPolicy(context.env.API_PLATFORM_KV);
     if (policy === null) {
-      return errorResponse("白名单尚未配置", 503);
+      return errorResponse("白名单尚未配置", 503, {
+        headers: { "Cache-Control": "no-store" },
+      });
     }
 
     return successResponse("获取成功", policy, 200, {
       "Cache-Control": "public, max-age=60",
+      Vary: HEADER_APP_VERSION,
     });
   });
   routes.all(ACCESS_POLICY_ROUTE_PATH, () => methodNotAllowed("GET"));
@@ -50,6 +75,19 @@ export function createAdminBuaaClasshopperRoutes(
   now: () => Date = () => new Date(),
 ): Hono<AppEnv> {
   const routes = new Hono<AppEnv>();
+
+  routes.get(ACCESS_POLICY_ROUTE_PATH, async (context) => {
+    const policy = await readAccessPolicy(context.env.API_PLATFORM_KV);
+    if (policy === null) {
+      return errorResponse("白名单尚未配置", 503, {
+        headers: { "Cache-Control": "no-store" },
+      });
+    }
+
+    return successResponse("获取成功", policy, 200, {
+      "Cache-Control": "no-store",
+    });
+  });
 
   routes.patch(
     ACCESS_POLICY_ROUTE_PATH,
@@ -123,7 +161,7 @@ export function createAdminBuaaClasshopperRoutes(
       );
     },
   );
-  routes.all(ACCESS_POLICY_ROUTE_PATH, () => methodNotAllowed("PATCH"));
+  routes.all(ACCESS_POLICY_ROUTE_PATH, () => methodNotAllowed("GET, PATCH"));
 
   return routes;
 }

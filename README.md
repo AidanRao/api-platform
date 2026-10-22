@@ -20,7 +20,12 @@ App 统一在 `src/apps/registry.ts` 维护。所有 App 共享通用能力及�
 
 ```http
 GET /api/buaa-classhopper/v1/iclass/access-policy
+X-App-Version: 1.5.1
 ```
+
+请求必须携带 `X-App-Version`，格式为三段数字版本号（如 `1.5.1`），按主版本、次版本、补丁版本逐段比较。最低版本在 `src/domains/buaa-classhopper/access-policy/app-version.ts` 的 `MIN_ACCESS_POLICY_APP_VERSION` 常量中固定为 `1.5.1`，不提供线上配置。
+
+低于最低版本返回 HTTP `426`，响应为 `{"code":0,"msg":"当前 App 版本过低，请升级至 1.5.1 或以上版本后使用白名单功能","data":null}`。缺失或格式无效的版本头返回 HTTP `400`，`msg` 提示请求头无效及升级要求。成功响应保留 `Cache-Control: public, max-age=60`，并添加 `Vary: X-App-Version`，供遵循该响应头的缓存按 App 版本区分响应；错误响应使用 `Cache-Control: no-store`。提高最低版本后，已有成功缓存可在剩余有效期内继续使用。App 版本限制仅作用于该公开接口。
 
 成功响应：
 
@@ -36,6 +41,14 @@ GET /api/buaa-classhopper/v1/iclass/access-policy
   }
 }
 ```
+
+### BUAA ClassHopper：管理员读取白名单
+
+```http
+GET /api/admin/buaa-classhopper/v1/iclass/access-policy
+```
+
+管理页通过该接口读取白名单，无需 `X-App-Version`，仅校验 Cloudflare Access 身份。成功响应结构与公开接口一致，响应使用 `Cache-Control: no-store`；尚未配置白名单时返回 `503`。
 
 ### BUAA ClassHopper：管理员增量更新
 

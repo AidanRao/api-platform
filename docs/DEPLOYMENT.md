@@ -4,7 +4,7 @@
 
 - 公开接口：`GET /api/buaa-classhopper/v1/iclass/access-policy`
 - 管理页面：`/admin/buaa-classhopper/`
-- 管理接口：`PATCH /api/admin/buaa-classhopper/v1/iclass/access-policy`
+- 管理接口：`GET` / `PATCH /api/admin/buaa-classhopper/v1/iclass/access-policy`（均通过 Access 鉴权，无需 App 版本头）
 - 一个绑定为 `API_PLATFORM_KV` 的生产 Workers KV namespace
 - Cloudflare Access 对管理页面和管理接口的双层保护
 
@@ -337,9 +337,9 @@ npm run deploy:production
 | Secret | 内容 |
 | --- | --- |
 | `CLOUDFLARE_ACCOUNT_ID` | 承载 `api-platform` Worker 和 D1 的 Cloudflare 账号 ID |
-| `CLOUDFLARE_API_TOKEN` | 该账号的 API Token，需具备部署 Worker、管理目标 Custom Domain 和 D1 写入所需权限 |
+| `CLOUDFLARE_API_TOKEN` | 该账号的 API Token，需具备部署 Worker、管理目标 Custom Domain、D1 写入及绑定已有 VPC Service 所需权限 |
 
-Token 至少需覆盖目标 Worker 的编辑权限、目标 zone 的 Workers Routes Write 权限，以及对生产 D1 执行迁移所需的 D1 Edit 权限；按实际资源收窄作用范围。不要把 Token 写进仓库。配置好 Secrets 后，推送到 `main` 或手动触发工作流，并检查 Actions 中迁移和部署步骤均成功。
+Token 至少需覆盖目标 Worker 的编辑权限、目标 zone 的 Workers Routes Write 权限，以及对生产 D1 执行迁移所需的 D1 Edit 权限；按实际资源收窄作用范围。CI 仅绑定已创建的 VPC Service，无需授予可创建或删除 Service 的 `Connectivity Directory Admin` 角色。若部署返回 VPC 权限错误（如 10196），先检查 Token 自身是否具有目标账号的 Connectivity Directory Read 和 Bind 权限，并确认 VPC Service 属于同一账号；用户 API Token 的所属成员也须拥有 `Connectivity Directory Bind`（或更高）账号角色。成员拥有 Super Administrator 并不代表受限 Token 自动获得 VPC 权限。不要把 Token 写进仓库。配置好 Secrets 后，推送到 `main` 或手动触发工作流，并检查 Actions 中迁移和部署步骤均成功。参见 [VPC Service 权限说明](https://developers.cloudflare.com/workers-vpc/configuration/vpc-services/#required-roles)和 [Cloudflare Workers SDK 的相关问题报告](https://github.com/cloudflare/workers-sdk/issues/11884)。
 
 ## 11. 上线验收
 
@@ -349,6 +349,7 @@ Token 至少需覆盖目标 Worker 的编辑权限、目标 zone 的 Workers Rou
 
 ```bash
 curl -i \
+  -H 'X-App-Version: 1.5.1' \
   https://api-platform.aidanrao.top/api/buaa-classhopper/v1/iclass/access-policy
 ```
 
@@ -387,9 +388,9 @@ https://api-platform.aidanrao.top/admin/buaa-classhopper/
 
 ### 11.4 检查安全边界
 
-- `/api/buaa-classhopper/v1/iclass/access-policy`：公开 `200`。
+- `/api/buaa-classhopper/v1/iclass/access-policy`：携带 `X-App-Version: 1.5.1` 或更高版本时公开 `200`；低版本返回 `426`，缺失或无效版本头返回 `400`，错误文案包含升级提示。
 - `/admin/buaa-classhopper/`：未认证时由 Access 拦截。
-- `/api/admin/buaa-classhopper/v1/iclass/access-policy`：未认证时由 Access 拦截。
+- `/api/admin/buaa-classhopper/v1/iclass/access-policy`：GET 和 PATCH 未认证时均由 Access 拦截；管理页使用 GET 读取，不携带 App 版本头。
 - 未知 `/admin/...` 资源：认证后仍返回 `404`，不会回退管理首页。
 - HTML：`Cache-Control: no-store`。
 - `/admin/assets/*`：认证后可加载，响应包含安全头。
@@ -483,7 +484,7 @@ Workers KV 是最终一致存储，跨地区读取可能短暂看到旧值。管
 
 - [ ] 自定义域和证书为 Active。
 - [ ] 公开 GET 在无认证环境返回 `200`。
-- [ ] 管理页面和 PATCH 都经过 Access。
+- [ ] 管理页面、管理员 GET 和 PATCH 都经过 Access。
 - [ ] 非管理员账号被拒绝。
 - [ ] Worker 内部 JWT issuer/audience 验证通过。
 - [ ] 初始 KV 已写入，管理页可以保存并刷新持久化。

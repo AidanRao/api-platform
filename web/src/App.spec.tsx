@@ -91,6 +91,9 @@ describe("whitelist management page", () => {
     ).toBe(true);
     expect(screen.getByText("23370001")).not.toBeNull();
     expect(screen.getByText("张三")).not.toBeNull();
+    const request = mockFetch().mock.calls[0];
+    expect(request?.[0]).toBe("/api/admin/buaa-classhopper/v1/iclass/access-policy");
+    expect(new Headers(request?.[1]?.headers).has("X-App-Version")).toBe(false);
   });
 
   it("stages an addition with Enter and saves the compact patch", async () => {
