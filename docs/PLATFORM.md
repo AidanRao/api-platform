@@ -2,13 +2,13 @@
 
 ## 职责与依赖
 
-平台以 App 为数据隔离范围。公告、未来广告是所有已注册 App 的并列通用能力，不由公告定义 App，也不为每个 App 复制一套业务实现。
+公告按 App 隔离；广告活动和素材由平台共享，广告位和投放按 App 隔离。二者是所有已注册 App 的并列通用能力，不为每个 App 复制实现。
 
 | 层次 | 代码入口 | 责任 |
 | --- | --- | --- |
 | App 注册 | `src/apps/registry.ts` | 代码维护 `id`、`name`，校验唯一且合法的路径标识；仅后端维护，前端通过 API 获取 |
 | 后端装配 | `src/apps/routes.ts` | 为每个 App 挂载全部通用能力，另外挂载应用专属扩展 |
-| 通用业务 | `src/features/announcements/`，未来 `src/features/ads/` | 自己的 schema、表和业务规则，接收平台传入的 App 身份 |
+| 通用业务 | `src/features/announcements/`、`src/features/ads/` | 自己的 schema、表和业务规则，接收平台传入的 App 身份 |
 | 共享媒体 | `src/features/media/`、`src/infrastructure/oss.ts` | 同源上传入口、图片校验和 OSS 存储，不引用公告业务 |
 | 管理框架 | `web/src/App.tsx`、`web/src/platform/` | React Router 路由、App 上下文、TanStack Query、会话草稿和通用 API 客户端 |
 | 应用扩展 | `src/domains/buaa-classhopper/` 与对应前端目录 | 只向 BUAA 提供 iClass 白名单和签到预约 |
@@ -29,7 +29,7 @@
 - `/api/another-app/announcement` 公告读取，以及 `/api/admin/another-app/announcement` 管理接口。
 - 自动出现在 `GET /api/admin/apps` 和管理端应用选择器中。
 
-未知 App 的入口和接口返回 404。App ID 使用小写字母、数字、短横线，不允许重复和 `admin/assets/index/apps/media/token` 保留值。前端从 `/api/admin/apps` 获取目录，根据 URL 匹配应用并向业务组件提供 App 上下文；管理 API 的 App 由后端挂载路径绑定，不接受请求体更改。切换应用前检查未保存内容，确认放弃后清除当前应用草稿，不带入其他 App。
+未知 App 的入口和接口返回 404。App ID 使用小写字母、数字、短横线，不允许重复和 `admin/assets/index/apps/media/token/ads` 保留值。前端从 `/api/admin/apps` 获取目录，根据 URL 匹配应用并向业务组件提供 App 上下文；管理 API 的 App 由后端挂载路径绑定，不接受请求体更改。切换应用前检查未保存内容，确认放弃后清除当前应用草稿，不带入其他 App。
 
 注册 App 不会自动创建 D1 表，也不提供新增、修改或删除 App 的管理 API；业务表通过迁移显式创建。`app_id` 由代码注册表管理并出现在通用业务表中。更改或删除已有 ID 不会自动迁移、删除数据库记录或 OSS 对象；已有应用应保留稳定 ID。
 
@@ -67,15 +67,17 @@ BUAA 专属签到预约的 SSO、API Token 接口及 D1 表见 [预约文档](./
 
 生产 CSP 保持 `script-src 'self'`，不允许内联脚本。shadcn/Radix 的定位、侧边栏尺寸和弹层滚动锁需要内联样式，因此 `style-src` 允许 `'unsafe-inline'`；图片域名仍仅按 OSS Bucket 域名放行。开发环境另允许 HMR WebSocket。
 
-## 广告的后续边界
+## 广告能力
 
-后续广告采用 **App、AdSlot、Campaign、Creative** 架构：App 复用此处注册表；AdSlot、Campaign、Creative 属于广告模块自身，按 `app_id` 隔离，使用独立的广告业务表和管理栏目。广告模块与公告并列，二者都可调用平台媒体上传能力。
+广告已实现平台共享 Campaign、Creative，以及按 App 隔离的 AdSlot、Placement；素材草稿与不可变发布版本分开管理。点击行为统一为投放上的 `targetUrl`，由客户端处理 HTTP(S) 与 App 深链接，不接入埋点。
 
-本次只完成平台重构，没有创建广告表、占位接口、空管理页面或投放逻辑。广告中的实体关联、投放策略、排期和计量在广告功能阶段实现。
+平台入口 `/admin/ads/campaigns`、`/admin/ads/creatives` 不要求选择 App；App 入口 `/admin/:appId/ads/slots`、`/admin/:appId/ads/placements` 管理广告位和投放。表单草稿、缓存显式区分平台与 App 作用域，跨作用域导航提示未保存内容。
+
+共享 API 挂载于 `/api/admin/ads`；App 管理 API 挂载于 `/api/admin/:appId/ads`；公开读取为 `/api/:appId/ads/slots/:slotKey`。详见 [广告协议与接入](./ADS.md)。
 
 ## 公共数据库
 
-D1 绑定为 `API_PLATFORM_DB`，建议数据库名为 `api-platform`。`migrations/` 是平台迁移目录：公告使用 `0001`–`0003`，签到预约、签到调度与 API Token 的完整表结构和索引由 `0004_reservations_and_api_tokens.sql` 一次创建；现有白名单仍使用 KV。
+D1 绑定为 `API_PLATFORM_DB`，建议数据库名为 `api-platform`。`migrations/` 是平台迁移目录：公告使用 `0001`–`0003`，签到预约、签到调度与 API Token 的完整表结构和索引由 `0004_reservations_and_api_tokens.sql` 一次创建；广告表由 `0005_ads.sql` 创建；现有白名单仍使用 KV。
 
 本地：
 

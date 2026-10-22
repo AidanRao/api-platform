@@ -6,7 +6,7 @@ export type { AppDefinition } from "./schema";
 export function defineApps(apps: readonly AppDefinition[]): readonly AppDefinition[] {
   const ids = new Set<string>();
   for (const app of apps) {
-    if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(app.id) || ["admin", "assets", "index", "apps", "media", "token"].includes(app.id)) {
+    if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(app.id) || ["admin", "assets", "index", "apps", "media", "token", "ads"].includes(app.id)) {
       throw new Error(`Invalid application ID: ${app.id}`);
     }
     if (ids.has(app.id) || !app.name.trim()) throw new Error(`Invalid or duplicate application: ${app.id}`);
@@ -35,10 +35,11 @@ export function appApiPath(appId: string, admin = false): string {
 
 export function isAdminPage(pathname: string, apps: readonly AppDefinition[] = APPS): boolean {
   if (/^\/admin\/?$/.test(pathname)) return true;
+  if (/^\/admin\/ads\/(?:campaigns|creatives)(?:\/[^/]+)?\/?$/.test(pathname)) return true;
   const app = appFromAdminPath(pathname, apps);
   if (!app) return false;
   const page = pathname.slice(`/admin/${app.id}`.length).replace(/\/$/, "");
-  return page === "" || /^\/announcements(?:\/[^/]+)?$/.test(page)
+  return /^\/ads\/(?:slots|placements)(?:\/[^/]+)?$/.test(page) || page === "" || /^\/announcements(?:\/[^/]+)?$/.test(page)
     || page === "/api-tokens" || page === "/api-tokens/new"
     || (app.id === "buaa-classhopper" && (page === "/whitelist" || page === "/reservations"));
 }

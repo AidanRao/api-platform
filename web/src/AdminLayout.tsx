@@ -13,12 +13,13 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 
 export function PlatformLayout() {
   const apps = useQuery(appsQuery);
+  const platformAds = useMatch("/admin/ads/*");
   const match = useMatch("/admin/:appId/*");
   const app = apps.data?.items.find((item) => item.id === match?.params.appId);
-  useEffect(() => { document.title = app ? `${app.name} · 应用管理` : "API Platform · 应用管理"; }, [app]);
+  useEffect(() => { document.title = app ? `${app.name} · 应用管理` : platformAds ? "API Platform · 平台广告" : "API Platform · 应用管理"; }, [app, platformAds]);
   return <ToastProvider><DraftProvider><TooltipProvider><SidebarProvider>
     <Navigation /><SidebarInset><header className="flex h-16 shrink-0 items-center gap-3 border-b px-4 md:px-8">
-      <SidebarTrigger aria-label="切换侧边栏" /><span className="text-sm text-muted-foreground">应用管理</span><span className="text-sm font-medium">{app?.name}</span>
+      <SidebarTrigger aria-label="切换侧边栏" /><span className="text-sm text-muted-foreground">{platformAds ? "平台广告 · 共享资源" : "应用管理"}</span><span className="text-sm font-medium">{app?.name}</span>
     </header><main className="mx-auto w-full max-w-7xl min-w-0 space-y-6 p-4 md:p-8">
       {apps.isPending ? <Loading /> : apps.isError ? <><ErrorNotice error={apps.error} /><Button onClick={() => void apps.refetch()}>重新加载应用列表</Button></> : <Outlet />}
     </main></SidebarInset><DraftNavigationGuard />
@@ -35,11 +36,11 @@ function Navigation() {
     <NavLink to="/admin/" className="text-lg font-semibold tracking-tight">API Platform</NavLink>
     <Select value={app?.id ?? ""} onValueChange={(id) => {
       const next = data?.items.find((item) => item.id === id);
-      if (next) { navigate(appLandingPath(next, location.pathname.split("/")[3])); setOpenMobile(false); }
+      if (next) { navigate(appLandingPath(next, location.pathname.split("/").slice(3, location.pathname.split("/")[3] === "ads" ? 5 : 4).join("/"))); setOpenMobile(false); }
     }}><SelectTrigger className="w-full" aria-label="选择应用"><SelectValue placeholder="选择应用" /></SelectTrigger>
       <SelectContent>{data?.items.map((item) => <SelectItem key={item.id} value={item.id}>{item.name}</SelectItem>)}</SelectContent>
     </Select>
-  </SidebarHeader><SidebarContent><SidebarGroup><SidebarGroupLabel>管理功能</SidebarGroupLabel><SidebarMenu>
+  </SidebarHeader><SidebarContent><SidebarGroup><SidebarGroupLabel>平台广告</SidebarGroupLabel><SidebarMenu>{[{ path: "campaigns", label: "广告活动" }, { path: "creatives", label: "共享素材" }].map((item) => <SidebarMenuItem key={item.path}><SidebarMenuButton asChild isActive={location.pathname.startsWith(`/admin/ads/${item.path}`)}><NavLink to={`/admin/ads/${item.path}`} onClick={() => setOpenMobile(false)}>{item.label}</NavLink></SidebarMenuButton></SidebarMenuItem>)}</SidebarMenu></SidebarGroup><SidebarGroup><SidebarGroupLabel>管理功能</SidebarGroupLabel><SidebarMenu>
     {app && sectionsForApp(app).map((section) => <SidebarMenuItem key={section.id}>
       <SidebarMenuButton asChild isActive={location.pathname.startsWith(`/admin/${app.id}/${section.id}`)}><NavLink to={`/admin/${app.id}/${section.id}`} onClick={() => setOpenMobile(false)}>{section.label}</NavLink></SidebarMenuButton>
     </SidebarMenuItem>)}
