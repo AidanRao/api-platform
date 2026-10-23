@@ -9,24 +9,13 @@ import {
   type Creative,
   type CreativeInput,
 } from "../../../../src/features/ads/schema";
-import { platformClient, jsonRequest } from "../../platform/api";
+import { platformClient } from "../../platform/api";
 import { uploadImage } from "../../platform/media";
 import { ErrorNotice, Loading } from "../../platform/feedback";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { SegmentedChoice } from "@/components/ui/segmented-choice";
 import { Textarea } from "@/components/ui/textarea";
-import {
-  AlertDialog,
-  AlertDialogTrigger,
-  AlertDialogContent,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogCancel,
-  AlertDialogAction,
-} from "@/components/ui/alert-dialog";
 import {
   adKey,
   useAdForm,
@@ -81,7 +70,9 @@ function Editor({ id, initial }: { id: string; initial: Creative | null }) {
     schema: creativeSchema,
     identifier: (v) => v.id,
   });
-  const [publishing, setPublishing] = useState(false);
+  const needsPublication = !!form.saved && (
+    !form.saved.published || JSON.stringify(form.saved.draft) !== JSON.stringify(form.saved.published.content)
+  );
   const [historyPage, setHistoryPage] = useState(1);
   const history = useQuery({
     queryKey: adKey(null, "creatives", id, "versions", historyPage),
@@ -102,8 +93,8 @@ function Editor({ id, initial }: { id: string; initial: Creative | null }) {
       >
         <p className="text-sm text-muted-foreground">
           {form.saved?.publishedVersion
-            ? `当前发布版本 v${form.saved.publishedVersion} · 保存草稿不影响投放`
-            : "保存草稿后发布，投放才可展示"}
+            ? `当前发布版本 v${form.saved.publishedVersion} · 保存后立即发布`
+            : "保存后立即发布，所有引用此素材的投放将使用保存后的内容"}
         </p>
       </EditorHeader>
       {form.notices}
@@ -169,7 +160,7 @@ function Editor({ id, initial }: { id: string; initial: Creative | null }) {
                       );
                     const result = await uploadImage(file);
                     editContent({ imageUrl: result.url });
-                    form.toast.info("图片已上传，请保存草稿");
+                    form.toast.info("图片已上传，请保存素材");
                   });
                 }}
               />
@@ -209,7 +200,7 @@ function Editor({ id, initial }: { id: string; initial: Creative | null }) {
             </Field>
           </div>
           <div className="space-y-3">
-            <h2 className="font-semibold">草稿预览</h2>
+            <h2 className="font-semibold">素材预览</h2>
             <ContentPreview content={form.draft.draft} />
             {form.saved?.published && (
               <>
@@ -224,71 +215,18 @@ function Editor({ id, initial }: { id: string; initial: Creative | null }) {
         <EditorActions>
           <Button
             disabled={
-              form.busy || form.conflict || (!!form.saved && !form.changed)
+              form.busy || form.conflict || (!!form.saved && !form.changed && !needsPublication)
             }
           >
-            保存草稿
+            保存素材
           </Button>
           {form.saved && (
-            <>
-              <AlertDialog open={publishing} onOpenChange={setPublishing}>
-                <AlertDialogTrigger asChild>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    disabled={form.busy || form.conflict || form.changed}
-                  >
-                    发布素材
-                  </Button>
-                </AlertDialogTrigger>
-                <AlertDialogContent className="max-h-[85vh] overflow-auto sm:max-w-xl">
-                  <AlertDialogHeader>
-                    <AlertDialogTitle>发布素材？</AlertDialogTitle>
-                    <AlertDialogDescription>
-                      发布后，所有引用此素材的投放将在后续请求中统一使用新版本。
-                    </AlertDialogDescription>
-                  </AlertDialogHeader>
-                  <PlacementReferences resource="creatives" id={id} />
-                  <AlertDialogFooter>
-                    <AlertDialogCancel>取消</AlertDialogCancel>
-                    <AlertDialogAction
-                      onClick={() =>
-                        form.run(async () => {
-                          const result = await platformClient(
-                            `/ads/creatives/${id}/publish`,
-                            creativeSchema,
-                            jsonRequest("POST", {
-                              revision: form.saved!.revision,
-                            }),
-                          );
-                          form.accept(result);
-                          form.toast.success(
-                            `素材已发布 · v${result.publishedVersion}`,
-                          );
-                        })
-                      }
-                    >
-                      确认发布
-                    </AlertDialogAction>
-                  </AlertDialogFooter>
-                </AlertDialogContent>
-              </AlertDialog>
-              <DeleteButton
-                disabled={
-                  form.busy ||
-                  form.conflict ||
-                  form.saved.publishedVersion !== null
-                }
-                onDelete={form.deleteRecord}
-              />
-            </>
+            <DeleteButton
+              disabled={form.busy || form.conflict}
+              onDelete={form.deleteRecord}
+            />
           )}
         </EditorActions>
-        {form.changed && form.saved && (
-          <p className="text-sm text-muted-foreground">
-            请先保存草稿，再发布。
-          </p>
-        )}
       </form>
       {form.saved && (
         <>

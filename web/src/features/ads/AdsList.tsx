@@ -13,7 +13,8 @@ import {
   pageSchema,
 } from "../../../../src/features/ads/schema";
 import { adBase, adKey, formatNames, pagePath, time } from "./shared";
-import { PlacementActions } from "./PlacementActions";
+import { PlacementRow } from "./PlacementRow";
+import { AdStatusBadge } from "./AdStatusBadge";
 import { SegmentedChoice } from "@/components/ui/segmented-choice";
 const labels = {
   campaigns: "广告活动",
@@ -53,6 +54,7 @@ function AdsList({
   const query = new URLSearchParams(params);
   query.set("page", String(page));
   query.set("pageSize", "20");
+  if (resource === "slots" || resource === "creatives") query.delete("enabled");
   const data = useQuery({
     queryKey: adKey(scope, resource, "list", query.toString()),
     queryFn: ({ signal }) => list(scope, resource, query.toString(), signal),
@@ -83,15 +85,15 @@ function AdsList({
         </Button>
       </header>
       <div className="flex flex-wrap gap-3">
-        {resource !== "creatives" && (
+        {(resource === "campaigns" || resource === "placements") && (
           <SegmentedChoice
             label="启用状态"
             hideLabel
             value={params.get("enabled") ?? ""}
             options={[
               { value: "", label: "全部状态" },
-              { value: "true", label: "启用" },
-              { value: "false", label: "停用" },
+              { value: "true", label: "已启用" },
+              { value: "false", label: "未启用" },
             ]}
             onChange={(enabled) => update("enabled", enabled)}
           />
@@ -122,13 +124,13 @@ function AdsList({
       ) : (
         <>
           <div className="overflow-x-auto rounded-lg border">
-            <table className="w-full text-left text-sm">
+            <table className={`w-full text-left text-sm ${resource === "placements" ? "min-w-[760px]" : ""}`}>
               <thead className="bg-muted/30">
                 <tr>
                   <th className="p-3">
                     {resource === "placements" ? "投放" : "名称"}
                   </th>
-                  <th className="p-3">状态</th>
+                  {resource !== "slots" && <th className="p-3">状态</th>}
                   <th className="p-3">
                     {resource === "creatives" ? "发布版本" : "配置"}
                   </th>
@@ -138,6 +140,7 @@ function AdsList({
               </thead>
               <tbody>
                 {data.data.items.map((item) => {
+                  if ("creativeId" in item) return <PlacementRow key={`${item.appId}/${item.id}`} placement={item} disabled={data.isFetching} />;
                   const id = "id" in item ? item.id : item.slotKey;
                   return (
                     <tr key={id} className="border-t">
@@ -146,54 +149,36 @@ function AdsList({
                           className="font-medium underline underline-offset-4"
                           to={`${path}/${encodeURIComponent(id)}`}
                         >
-                          {"name" in item
-                            ? item.name
-                            : `${item.slotKey} · ${item.id}`}
+                          {item.name}
                         </Link>
                         <div className="mt-1 text-xs text-muted-foreground">
                           {id}
                         </div>
                       </td>
-                      <td className="p-3">
-                        {"enabled" in item
-                          ? item.enabled
-                            ? "启用"
-                            : "停用"
-                          : item.publishedVersion === null
-                            ? "未发布"
-                            : JSON.stringify(item.draft) ===
-                                JSON.stringify(item.published?.content)
-                              ? "已发布"
-                              : "有未发布更改"}
-                      </td>
+                      {!("format" in item) && (
+                        <td className="p-3">
+                          {"enabled" in item
+                            ? <AdStatusBadge item={item} />
+                            : item.publishedVersion === null ? "未发布" : "已发布"}
+                        </td>
+                      )}
                       <td className="p-3">
                         {"publishedVersion" in item
                           ? (item.publishedVersion ?? "—")
                           : "format" in item
                             ? `${formatNames[item.format]} · ${item.maxItems} 条`
-                            : "priority" in item
-                              ? `优先级 ${item.priority}`
-                              : `${time(item.startsAt)} → ${time(item.endsAt)}`}
+                            : `${time(item.startsAt)} → ${time(item.endsAt)}`}
                       </td>
                       <td className="whitespace-nowrap p-3">
                         {time(item.updatedAt)}
                       </td>
-                      {resource === "placements" && "creativeId" in item && (
-                        <td className="p-3">
-                          <PlacementActions
-                            key={`${scope}/${item.id}`}
-                            placement={item}
-                            disabled={data.isFetching}
-                          />
-                        </td>
-                      )}
                     </tr>
                   );
                 })}
                 {!data.data.items.length && (
                   <tr>
                     <td
-                      colSpan={resource === "placements" ? 5 : 4}
+                      colSpan={resource === "placements" ? 5 : resource === "slots" ? 3 : 4}
                       className="p-8 text-center text-muted-foreground"
                     >
                       暂无记录

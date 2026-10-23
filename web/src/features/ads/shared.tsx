@@ -155,7 +155,7 @@ export function useAdForm<T extends { revision: number }, D>(options: {
         jsonRequest(session.saved ? "PATCH" : "POST", body),
       );
       accept(value);
-      toast.success(resource === "creatives" ? "素材草稿已保存" : "已保存");
+      toast.success(resource === "creatives" ? "素材已保存并发布" : "已保存");
       if (!session.saved) {
         remove();
         navigate(`${path}/${encodeURIComponent(identifier(value))}`, {
@@ -353,7 +353,7 @@ export function DeleteButton({
         <AlertDialogHeader>
           <AlertDialogTitle>确认删除？</AlertDialogTitle>
           <AlertDialogDescription>
-            删除不可恢复。已发布素材或仍被引用的记录不能删除，图片文件会保留。
+            删除不可恢复。仍被引用的记录不能删除，删除素材会一并删除版本历史，图片文件会保留。
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>

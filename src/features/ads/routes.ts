@@ -133,14 +133,6 @@ export function createPlatformAdsRoutes(now: () => Date) {
   });
   router.all("/creatives", () => methodNotAllowed("GET, POST"));
   router.all("/creatives/:id", () => methodNotAllowed("GET, PATCH, DELETE"));
-  router.post("/creatives/:id/publish", async (c) => {
-    const value = await service(c, now).publishCreative(
-      c.req.param("id"),
-      parse(schema.revisionSchema, await body(c)).revision,
-    );
-    audit(c);
-    return successResponse("素材已发布", value);
-  });
   router.get("/creatives/:id/versions", async (c) => {
     const repo = service(c, now).repo;
     requireRecord(await repo.creative(c.req.param("id")));
@@ -176,7 +168,6 @@ export function createPlatformAdsRoutes(now: () => Date) {
       await repo.placements({ ...query(c), campaignId: c.req.param("id") }),
     );
   });
-  router.all("/creatives/:id/publish", () => methodNotAllowed("POST"));
   for (const path of [
     "/creatives/:id/versions",
     "/creatives/:id/versions/:version",

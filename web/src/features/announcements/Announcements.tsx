@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { statusNames, formatTime } from "./presentation";
+import { statusNames, statusVariants, formatTime } from "./presentation";
 
 export default function Announcements() {
   const app = useApplication();
@@ -44,7 +44,7 @@ export default function Announcements() {
     </div>
     {list.isPending ? <Loading /> : list.isError ? <ErrorNotice error={list.error} /> : <>
       <div className="rounded-lg border"><Table><TableHeader><TableRow><TableHead>公告标题</TableHead><TableHead>标签</TableHead><TableHead>状态</TableHead><TableHead>首次发布时间（上海时间）</TableHead></TableRow></TableHeader><TableBody>
-        {list.data.items.map((item) => <TableRow key={item.id}><TableCell><Link className="font-medium underline-offset-4 hover:underline" to={`${path}/${item.id}`}>{item.title}</Link>{item.isPinned && <Badge variant="secondary" className="ml-2">置顶</Badge>}</TableCell><TableCell><div className="flex flex-wrap gap-1">{item.tags.map((tag) => <Badge variant="secondary" key={tag}>{tag}</Badge>)}</div></TableCell><TableCell><Badge variant="outline">{statusNames[item.status]}</Badge></TableCell><TableCell className="text-muted-foreground">{formatTime(item.publishedAt)}</TableCell></TableRow>)}
+        {list.data.items.map((item) => <TableRow key={item.id}><TableCell><Link className="font-medium underline-offset-4 hover:underline" to={`${path}/${item.id}`}>{item.title}</Link>{item.isPinned && <Badge variant="secondary" className="ml-2">置顶</Badge>}</TableCell><TableCell><div className="flex flex-wrap gap-1">{item.tags.map((tag) => <Badge variant="secondary" key={tag}>{tag}</Badge>)}</div></TableCell><TableCell><Badge variant={statusVariants[item.status]}>{statusNames[item.status]}</Badge></TableCell><TableCell className="text-muted-foreground">{formatTime(item.publishedAt)}</TableCell></TableRow>)}
         {list.data.items.length === 0 && <TableRow><TableCell colSpan={4} className="h-32 text-center text-muted-foreground">暂无公告</TableCell></TableRow>}
       </TableBody></Table></div>
       <div className="flex flex-wrap items-center justify-end gap-3"><span className="text-sm text-muted-foreground">第 {page} 页 · 共 {list.data.total} 条</span><Button variant="outline" disabled={page <= 1} onClick={() => updatePage(page - 1)}>上一页</Button><Button variant="outline" disabled={page * 20 >= list.data.total} onClick={() => updatePage(page + 1)}>下一页</Button></div>

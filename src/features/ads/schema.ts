@@ -77,7 +77,6 @@ export const slotCreateSchema = z
     slotKey: slotKeySchema,
     name,
     format: formatSchema,
-    enabled: z.boolean().default(false),
     maxItems: z.number().int().min(1).max(10).optional(),
   })
   .strict();
@@ -118,7 +117,6 @@ export const slotPatchSchema = z
   .object({
     ...revisionSchema.shape,
     name: name.optional(),
-    enabled: z.boolean().optional(),
     maxItems: z.number().int().min(1).max(10).optional(),
   })
   .strict()

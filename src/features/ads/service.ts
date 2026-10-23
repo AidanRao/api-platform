@@ -62,33 +62,22 @@ export class AdsService {
       () => this.repo.campaign(id),
     );
   }
-  async createCreative(input: CreativeInput) {
+  private validateCreative(input: CreativeInput) {
+    if (!input.draft.imageUrl || (input.type === "card" && !input.draft.title))
+      throw new ApiError("保存素材需要图片，图文卡片还需要标题", 400);
     validatePlatformImage(this.env, input.draft.imageUrl);
+  }
+  async createCreative(input: CreativeInput) {
+    this.validateCreative(input);
     return this.repo.createCreative(input, this.now().toISOString());
   }
   async updateCreative(id: string, input: z.infer<typeof creativePatchSchema>) {
     const current = requireRecord(await this.repo.creative(id));
     checkRevision(current, input.revision);
-    validatePlatformImage(this.env, input.draft?.imageUrl);
+    const next = { ...current, ...input };
+    this.validateCreative(next);
     return this.changed(
-      await this.repo.updateCreative(
-        { ...current, ...input },
-        this.now().toISOString(),
-      ),
-      () => this.repo.creative(id),
-    );
-  }
-  async publishCreative(id: string, revision: number) {
-    const current = requireRecord(await this.repo.creative(id));
-    checkRevision(current, revision);
-    if (
-      !current.draft.imageUrl ||
-      (current.type === "card" && !current.draft.title)
-    )
-      throw new ApiError("发布需要图片，图文卡片还需要标题", 400);
-    validatePlatformImage(this.env, current.draft.imageUrl);
-    return this.changed(
-      await this.repo.publishCreative(id, revision, this.now().toISOString()),
+      await this.repo.updateCreative(next, this.now().toISOString()),
       () => this.repo.creative(id),
     );
   }
@@ -133,7 +122,7 @@ export class AdsService {
     if ((slot.format === "card" ? "card" : "image") !== creative.type)
       throw new ApiError("素材类型与广告位不匹配", 400);
     if (input.enabled && creative.publishedVersion === null)
-      throw new ApiError("启用投放前请先发布素材", 400);
+      throw new ApiError("启用投放前请先保存素材", 400);
   }
   async createPlacement(appId: string, input: PlacementInput) {
     await this.validatePlacement(appId, input);
@@ -168,7 +157,7 @@ export class AdsService {
   async deleteCreative(id: string, revision: number) {
     checkRevision(requireRecord(await this.repo.creative(id)), revision);
     if (!(await this.repo.deleteCreative(id, revision)))
-      throw new ApiError("无法删除：素材已发布、被引用或记录已变化", 409);
+      throw new ApiError("无法删除：素材被引用或记录已变化", 409);
   }
   async deleteSlot(appId: string, key: string, revision: number) {
     checkRevision(requireRecord(await this.repo.slot(appId, key)), revision);

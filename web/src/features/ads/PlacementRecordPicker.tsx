@@ -151,14 +151,14 @@ function RecordMeta({ id, updatedAt }: { id: string; updatedAt: string }) {
 
 function CampaignSummary(record: Campaign) {
   return <div className="space-y-1 text-sm">
-    <div className="flex flex-wrap items-center gap-x-3 gap-y-1"><p className="break-words font-medium">{record.name}</p><span className="text-xs text-muted-foreground">{record.enabled ? "启用" : "停用"}</span></div>
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-1"><p className="break-words font-medium">{record.name}</p></div>
     <p className="text-xs text-muted-foreground">{record.startsAt || record.endsAt ? `${time(record.startsAt)} → ${time(record.endsAt)}` : "不限时间"}</p>
   </div>;
 }
 
 function SlotSummary(record: AdSlot) {
   return <div className="space-y-1 text-sm">
-    <div className="flex flex-wrap items-center gap-x-3 gap-y-1"><p className="break-words font-medium">{record.name}</p><span className="text-xs text-muted-foreground">{record.enabled ? "启用" : "停用"}</span></div>
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-1"><p className="break-words font-medium">{record.name}</p></div>
     <p className="text-xs text-muted-foreground">{formatNames[record.format]} · 最多 {record.maxItems} 条</p>
   </div>;
 }
@@ -187,8 +187,8 @@ function CreativeSummary(record: Creative) {
       {content.title && <p className="break-words text-sm font-medium">{content.title}</p>}
       {content.description && <p className="whitespace-pre-wrap break-words text-sm text-muted-foreground">{content.description}</p>}
       {content.buttonText && <Badge variant="outline">按钮：{content.buttonText}</Badge>}
-      {!record.published && <p className="text-xs text-muted-foreground">当前为草稿，发布后才可启用投放。</p>}
-      {changed && <p className="text-xs text-muted-foreground">预览为已发布内容，未发布修改不会用于投放。</p>}
+      {!record.published && <p className="text-xs text-muted-foreground">请先保存此素材，再启用投放。</p>}
+      {changed && <p className="text-xs text-muted-foreground">预览为当前发布内容，保存素材后将更新投放。</p>}
       <RecordMeta id={record.id} updatedAt={record.updatedAt} />
     </div>
   </div>;

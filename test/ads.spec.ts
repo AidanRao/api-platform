@@ -1,6 +1,7 @@
 import { env } from "cloudflare:workers";
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import migration from "../migrations/0005_ads.sql?raw";
+import slotMigration from "../migrations/0006_ads_slots_always_enabled.sql?raw";
 import { createApp } from "../src/app";
 import { defineApps } from "../src/apps/registry";
 import { AdsRepository } from "../src/features/ads/repository";
@@ -66,16 +67,11 @@ const creative = (input = {}) =>
     draft: { imageUrl: image, title: "原始素材" },
     ...input,
   }).then(read<Creative>);
-const publish = (c: Creative) =>
-  request(`${base}/creatives/${c.id}/publish`, "POST", {
-    revision: c.revision,
-  }).then(read<Creative>);
 const slot = (appId = "buaa-classhopper", input = {}) =>
   request(`${scoped(appId)}/slots`, "POST", {
     slotKey: "home",
     name: "首页",
     format: "banner",
-    enabled: true,
     ...input,
   }).then(read<AdSlot>);
 const placement = (
@@ -104,12 +100,19 @@ const delivery = (appId = "buaa-classhopper") =>
     }>,
   );
 beforeAll(async () => {
-  await env.API_PLATFORM_DB.batch(
-    migration
-      .split(";")
-      .filter((sql) => sql.trim())
-      .map((sql) => env.API_PLATFORM_DB.prepare(sql)),
+  const apply = (sql: string) => env.API_PLATFORM_DB.batch(
+    sql.split(";").filter((statement) => statement.trim())
+      .map((statement) => env.API_PLATFORM_DB.prepare(statement)),
   );
+  await apply(migration);
+  // Existing disabled slots retain their configuration when the column is removed.
+  await env.API_PLATFORM_DB.prepare(
+    "INSERT INTO ad_slots(app_id,slot_key,name,format,enabled,max_items,created_at,updated_at) VALUES(?,?,?,?,0,?,?,?)",
+  ).bind("buaa-classhopper", "legacy", "旧广告位", "carousel", 3, now.toISOString(), now.toISOString()).run();
+  await apply(slotMigration);
+  const migrated = await new AdsRepository(env.API_PLATFORM_DB).slot("buaa-classhopper", "legacy");
+  expect(migrated).toMatchObject({ slotKey: "legacy", name: "旧广告位", format: "carousel", maxItems: 3, revision: 1 });
+  expect(migrated).not.toHaveProperty("enabled");
 });
 beforeEach(async () => {
   await env.API_PLATFORM_DB.batch(
@@ -124,9 +127,9 @@ beforeEach(async () => {
   now = new Date("2026-10-22T00:00:00.000Z");
 });
 describe("shared ads", () => {
-  it("shares published snapshots across Apps without leaking draft edits, and retains history", async () => {
+  it("publishes on create and save across Apps, and retains immutable history", async () => {
     const a = await campaign();
-    let c = await publish(await creative());
+    let c = await creative();
     for (const appId of apps.map((a) => a.id)) {
       await slot(appId);
       await placement(a, c, appId);
@@ -138,16 +141,18 @@ describe("shared ads", () => {
     });
     c = await request(`${base}/creatives/${c.id}`, "PATCH", {
       revision: c.revision,
-      draft: { ...c.draft, title: "新草稿" },
+      draft: { ...c.draft, title: "新内容" },
     }).then(read<Creative>);
-    expect((await delivery()).items[0]!.content.title).toBe("原始素材");
-    c = await publish(c);
     for (const appId of apps.map((a) => a.id))
       expect((await delivery(appId)).items[0]).toMatchObject({
         publishedVersion: 2,
-        content: { title: "新草稿" },
+        content: { title: "新内容" },
       });
-    expect(await publish(c)).toEqual(c);
+    const renamed = await request(`${base}/creatives/${c.id}`, "PATCH", {
+      revision: c.revision, name: "仅改名称",
+    }).then(read<Creative>);
+    expect(renamed.publishedVersion).toBe(2);
+    expect(renamed.revision).toBe(c.revision + 1);
     const old = await request(`${base}/creatives/${c.id}/versions/1`).then(
       read<{ content: { title: string } }>,
     );
@@ -163,52 +168,64 @@ describe("shared ads", () => {
       "no-store",
     );
   });
-  it("publishes atomically under stale/concurrent revisions and rolls a failed batch back", async () => {
+  it("publishes a legacy unpublished creative on its next save", async () => {
+    const content = { imageUrl: image, title: "旧素材", description: "", buttonText: "" };
+    await env.API_PLATFORM_DB.prepare(
+      "INSERT INTO ad_creatives(id,name,type,draft,created_at,updated_at) VALUES(?,?,?,?,?,?)",
+    ).bind("legacy-creative", "旧素材", "image", JSON.stringify(content), now.toISOString(), now.toISOString()).run();
+    const saved = await request(`${base}/creatives/legacy-creative`, "PATCH", {
+      revision: 1, name: "旧素材",
+    }).then(read<Creative>);
+    expect(saved).toMatchObject({ revision: 2, publishedVersion: 1, draft: content, published: { content } });
+  });
+  it("saves and publishes atomically under stale/concurrent revisions", async () => {
     const c = await creative();
     const results = await Promise.all([
-      request(`${base}/creatives/${c.id}/publish`, "POST", { revision: 1 }),
-      request(`${base}/creatives/${c.id}/publish`, "POST", { revision: 1 }),
+      request(`${base}/creatives/${c.id}`, "PATCH", {
+        revision: 1, draft: { ...c.draft, title: "并发 A" },
+      }),
+      request(`${base}/creatives/${c.id}`, "PATCH", {
+        revision: 1, draft: { ...c.draft, title: "并发 B" },
+      }),
     ]);
     expect(results.map((r) => r.status).sort()).toEqual([200, 409]);
     const repo = new AdsRepository(env.API_PLATFORM_DB);
-    expect((await repo.versions(c.id, { page: 1, pageSize: 20 })).total).toBe(
-      1,
-    );
-    expect(await repo.publishCreative(c.id, 1, now.toISOString())).toBeNull();
-    await expect(
-      env.API_PLATFORM_DB.batch([
-        env.API_PLATFORM_DB.prepare(
-          "INSERT INTO ad_creative_versions SELECT creative_id,2,content,published_at FROM ad_creative_versions WHERE creative_id=? AND version=1",
-        ).bind(c.id),
-        env.API_PLATFORM_DB.prepare(
-          "INSERT INTO ad_creative_versions SELECT creative_id,2,content,published_at FROM ad_creative_versions WHERE creative_id=? AND version=1",
-        ).bind(c.id),
-      ]),
-    ).rejects.toThrow();
-    expect((await repo.versions(c.id, { page: 1, pageSize: 20 })).total).toBe(
-      1,
-    );
-    expect((await repo.creative(c.id))!.publishedVersion).toBe(1);
-    const saved = await request(`${base}/creatives/${c.id}`, "PATCH", {
-      revision: 2,
-      name: "新名称",
-    }).then(read<Creative>);
-    expect(
-      (
-        await request(`${base}/creatives/${c.id}/publish`, "POST", {
-          revision: 2,
-        })
-      ).status,
-    ).toBe(409);
-    expect(saved.draft.imageUrl).toBe(image);
+    const saved = (await repo.creative(c.id))!;
+    expect(saved.revision).toBe(2);
+    expect(saved.publishedVersion).toBe(2);
+    expect(saved.published!.content).toEqual(saved.draft);
+    expect((await repo.versions(c.id, { page: 1, pageSize: 20 })).total).toBe(2);
+    expect(await repo.updateCreative({ ...c, draft: { ...c.draft, title: "过期保存" } }, now.toISOString())).toBeNull();
+    expect((await repo.versions(c.id, { page: 1, pageSize: 20 })).total).toBe(2);
+  });
+  it("rolls content, revision and snapshot back when saving fails", async () => {
+    const repo = new AdsRepository(env.API_PLATFORM_DB);
+    const c = await creative();
+    await env.API_PLATFORM_DB.prepare(`CREATE TRIGGER fail_creative_update BEFORE UPDATE ON ad_creatives
+      BEGIN SELECT RAISE(ABORT, 'forced save failure'); END`).run();
+    try {
+      await expect(repo.updateCreative({ ...c, name: "失败名称", draft: { ...c.draft, title: "失败内容" } }, now.toISOString())).rejects.toThrow();
+      expect(await repo.creative(c.id)).toEqual(c);
+      expect((await repo.versions(c.id, { page: 1, pageSize: 20 })).total).toBe(1);
+    } finally {
+      await env.API_PLATFORM_DB.prepare("DROP TRIGGER fail_creative_update").run();
+    }
+    await env.API_PLATFORM_DB.prepare(`CREATE TRIGGER fail_creative_version BEFORE INSERT ON ad_creative_versions
+      BEGIN SELECT RAISE(ABORT, 'forced create failure'); END`).run();
+    try {
+      await expect(repo.createCreative({ name: "失败创建", type: "image", draft: c.draft }, now.toISOString())).rejects.toThrow();
+      expect((await repo.creatives({ page: 1, pageSize: 20 })).total).toBe(1);
+    } finally {
+      await env.API_PLATFORM_DB.prepare("DROP TRIGGER fail_creative_version").run();
+    }
   });
   it("uses intersecting inclusive-start/exclusive-end schedules and stable priority ordering", async () => {
     const a = await campaign({
       startsAt: "2026-10-22T00:00:00Z",
       endsAt: "2026-10-23T00:00:00Z",
     });
-    const c = await publish(await creative());
-    const s = await slot("buaa-classhopper", {
+    const c = await creative();
+    await slot("buaa-classhopper", {
       format: "carousel",
       maxItems: 2,
     });
@@ -234,15 +251,6 @@ describe("shared ads", () => {
     expect(await ids()).toEqual([high.id, first.id]);
     now = new Date("2026-10-22T02:00:00Z");
     expect(await ids()).toEqual([first.id, second.id]);
-    await request(`${scoped()}/slots/home`, "PATCH", {
-      revision: s.revision,
-      enabled: false,
-    }).then(read);
-    expect(await ids()).toEqual([]);
-    await request(`${scoped()}/slots/home`, "PATCH", {
-      revision: 2,
-      enabled: true,
-    }).then(read);
     now = new Date("2026-10-23T00:00:00Z");
     expect(await ids()).toEqual([]);
     expect(
@@ -264,10 +272,7 @@ describe("shared ads", () => {
       slotKey: "home",
       enabled: true,
     };
-    expect(
-      (await request(`${scoped()}/placements`, "POST", input)).status,
-    ).toBe(400);
-    const p = await placement(a, c, undefined, { enabled: false });
+    const p = await request(`${scoped()}/placements`, "POST", input).then(read<Placement>);
     expect(
       (
         await request(`${base}/creatives/${c.id}`, "DELETE", {
@@ -327,11 +332,12 @@ describe("shared ads", () => {
     await request(`${scoped()}/placements/${p.id}`, "DELETE", {
       revision: 1,
     }).then(read);
-    await request(`${base}/creatives/${c.id}`, "DELETE", { revision: 1 }).then(
-      read,
-    );
+    expect((await request(`${base}/creatives/${c.id}`, "DELETE", { revision: 2 })).status).toBe(409);
+    await request(`${base}/creatives/${c.id}`, "DELETE", { revision: 1 }).then(read);
+    expect((await request(`${base}/creatives/${c.id}`)).status).toBe(404);
+    expect((await new AdsRepository(env.API_PLATFORM_DB).versions(c.id, { page: 1, pageSize: 20 })).total).toBe(0);
   });
-  it("requires Access, validates publishing and preserves omitted PATCH fields", async () => {
+  it("requires Access, validates saves and preserves omitted PATCH fields", async () => {
     expect(campaignPatchSchema.parse({ revision: 1, name: "new" })).toEqual({
       revision: 1,
       name: "new",
@@ -346,14 +352,17 @@ describe("shared ads", () => {
         )
       ).status,
     ).toBe(401);
-    const c = await creative({ type: "card", draft: {} });
-    expect(
-      (
-        await request(`${base}/creatives/${c.id}/publish`, "POST", {
-          revision: c.revision,
-        })
-      ).status,
-    ).toBe(400);
+    for (const input of [
+      { type: "image", draft: {} },
+      { type: "card", draft: { imageUrl: image } },
+    ]) {
+      expect((await request(`${base}/creatives`, "POST", { name: "无效素材", ...input })).status).toBe(400);
+    }
+    const c = await creative({ type: "card" });
+    expect((await request(`${base}/creatives/${c.id}`, "PATCH", {
+      revision: c.revision, draft: { imageUrl: image },
+    })).status).toBe(400);
+    expect(await request(`${base}/creatives/${c.id}`).then(read<Creative>)).toEqual(c);
     expect(
       (
         await request(`${base}/creatives`, "POST", {
@@ -377,9 +386,7 @@ describe("shared ads", () => {
         })
       ).status,
     ).toBe(409);
-    expect(
-      (await request(`${base}/creatives/${c.id}/publish`, "GET")).status,
-    ).toBe(405);
+
   });
 });
 describe("ads API boundaries", () => {
@@ -397,10 +404,10 @@ describe("ads API boundaries", () => {
       testEnv,
     );
     const a = await campaign();
-    const c = await publish(await creative());
+    const c = await creative();
     const slotPath = `${scoped(appId)}/slots/${slotKey}`;
     const created = await call(`${scoped(appId)}/slots`, "POST", {
-      slotKey, name: "公告顶部", format: "banner", enabled: true,
+      slotKey, name: "公告顶部", format: "banner",
     }).then(read<AdSlot>);
     expect(created.slotKey).toBe(slotKey);
     expect((await call(slotPath).then(read<AdSlot>)).slotKey).toBe(slotKey);
@@ -418,6 +425,26 @@ describe("ads API boundaries", () => {
     await call(`${scoped(appId)}/placements/${p.id}`, "DELETE", { revision: 2 }).then(read);
     await call(slotPath, "DELETE", { revision: 2 }).then(read);
     expect((await call(publicUrl(appId, slotKey))).status).toBe(404);
+  });
+  it("treats slots as always available and rejects removed enabled fields", async () => {
+    const a = await campaign();
+    const c = await creative();
+    const s = await slot();
+    expect(s).not.toHaveProperty("enabled");
+    expect(c).not.toHaveProperty("enabled");
+    expect((await env.API_PLATFORM_DB.prepare("PRAGMA table_info(ad_slots)").all<{ name: string }>()).results.map((r) => r.name)).not.toContain("enabled");
+    await placement(a, c);
+    expect((await delivery()).items).toHaveLength(1);
+    const list = await request(`${scoped()}/slots?enabled=false`).then(read<{ items: AdSlot[] }>);
+    expect(list.items).toHaveLength(1);
+    expect(list.items[0]).not.toHaveProperty("enabled");
+    for (const [path, method, body] of [
+      [`${scoped()}/slots`, "POST", { slotKey: "other", name: "广告位", format: "banner", enabled: false }],
+      [`${scoped()}/slots/home`, "PATCH", { revision: 1, enabled: false }],
+      [`${base}/creatives/${c.id}`, "PATCH", { revision: 1, enabled: false }],
+    ] as const) {
+      expect((await request(path, method, body)).status).toBe(400);
+    }
   });
   it("continues rejecting reserved slot keys and URL path separators", async () => {
     for (const slotKey of ["new", "bad/key", "bad key", "../slot"]) {
@@ -448,7 +475,7 @@ describe("ads API boundaries", () => {
       ).status,
     ).toBe(400);
     const a = await campaign();
-    const c = await publish(await creative());
+    const c = await creative();
     await slot();
     const p = await placement(a, c);
     expect(

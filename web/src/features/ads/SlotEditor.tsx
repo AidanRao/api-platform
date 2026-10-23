@@ -17,7 +17,6 @@ import {
   adKey,
   useAdForm,
   Field,
-  Enabled,
   EditorHeader,
   DeleteButton,
   formatNames,
@@ -26,14 +25,12 @@ const empty: SlotInput = {
   slotKey: "",
   name: "",
   format: "banner",
-  enabled: false,
   maxItems: 1,
 };
 const fields = (v: AdSlot): SlotInput => ({
   slotKey: v.slotKey,
   name: v.name,
   format: v.format,
-  enabled: v.enabled,
   maxItems: v.maxItems,
 });
 export default function SlotEditor() {
@@ -148,10 +145,6 @@ function Editor({ id, initial }: { id: string; initial: AdSlot | null }) {
               />
             </Field>
           )}
-          <Enabled
-            value={form.draft.enabled}
-            onChange={(enabled) => form.edit({ enabled })}
-          />
         </fieldset>
         <EditorActions>
           <Button

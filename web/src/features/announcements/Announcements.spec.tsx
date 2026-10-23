@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MarkdownPreview } from "./MarkdownPreview";
@@ -36,6 +36,23 @@ afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 const writes = () => vi.mocked(fetch).mock.calls.filter(([, init]) => init?.method && init.method !== "GET");
 
 describe("routed announcement management", () => {
+  it("distinguishes draft, published and unpublished status badges by color", async () => {
+    const fetchImpl = vi.mocked(fetch).getMockImplementation()!;
+    vi.mocked(fetch).mockImplementation(async (input, init) => {
+      if (String(input).includes("announcement?")) return ok({
+        items: ["draft", "published", "unpublished"].map((status) => ({ ...item, id: status, title: status, status })),
+        page: 1, pageSize: 20, total: 3,
+      });
+      return fetchImpl(input, init);
+    });
+    renderAdmin(path);
+    await screen.findByRole("link", { name: "published" });
+    const variants = ["draft", "published", "unpublished"].map((title) => {
+      const row = screen.getByRole("link", { name: title }).closest("tr")!;
+      return within(row).getAllByRole("cell")[2]!.querySelector("[data-slot=badge]")!.getAttribute("data-variant");
+    });
+    expect(new Set(variants).size).toBe(3);
+  });
   it("formats selected Markdown and updates the split preview before saving", async () => {
     const user = userEvent.setup(); renderAdmin(`${path}/one`);
     const textarea = await screen.findByLabelText("公告内容（Markdown）") as HTMLTextAreaElement;
