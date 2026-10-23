@@ -19,14 +19,14 @@ import {
 const meta = "revision, created_at AS createdAt, updated_at AS updatedAt";
 const campaignColumns = `id, name, notes, enabled, starts_at AS startsAt, ends_at AS endsAt, ${meta}`;
 const creativeColumns = `id, name, type, draft, published_version AS publishedVersion, ${meta}`;
-const slotColumns = `app_id AS appId, slot_key AS slotKey, name, format, enabled, max_items AS maxItems, ${meta}`;
+const slotColumns = `app_id AS appId, slot_key AS slotKey, name, format, max_items AS maxItems, ${meta}`;
 const placementColumns = `id, campaign_id AS campaignId, app_id AS appId, slot_key AS slotKey, creative_id AS creativeId, target_url AS targetUrl, priority, enabled, starts_at AS startsAt, ends_at AS endsAt, ${meta}`;
 const versionColumns =
   "creative_id AS creativeId, version, content, published_at AS publishedAt";
 type Row = Record<string, unknown>;
 const decodeCampaign = (r: Row) =>
   campaignSchema.parse({ ...r, enabled: !!r.enabled });
-const decodeSlot = (r: Row) => slotSchema.parse({ ...r, enabled: !!r.enabled });
+const decodeSlot = (r: Row) => slotSchema.parse(r);
 const decodePlacement = (r: Row) =>
   placementSchema.parse({ ...r, enabled: !!r.enabled });
 const decodeVersion = (r: Row) =>
@@ -164,41 +164,40 @@ export class AdsRepository {
   }
   async createCreative(input: CreativeInput, now: string) {
     const id = generatePublicId("ADCR", new Date(now), "Asia/Shanghai");
-    await this.statement(
-      "INSERT INTO ad_creatives(id,name,type,draft,created_at,updated_at) VALUES(?,?,?,?,?,?)",
-      [id, input.name, input.type, JSON.stringify(input.draft), now, now],
-    ).run();
+    await this.db.batch([
+      this.statement(
+        "INSERT INTO ad_creatives(id,name,type,draft,published_version,created_at,updated_at) VALUES(?,?,?,?,1,?,?)",
+        [id, input.name, input.type, JSON.stringify(input.draft), now, now],
+      ),
+      this.statement(
+        "INSERT INTO ad_creative_versions(creative_id,version,content,published_at) VALUES(?,1,?,?)",
+        [id, JSON.stringify(input.draft), now],
+      ),
+    ]);
     return (await this.creative(id))!;
   }
   async updateCreative(v: Creative, now: string) {
-    const result = await this.statement(
-      "UPDATE ad_creatives SET name=?,draft=?,revision=revision+1,updated_at=? WHERE id=? AND revision=?",
-      [v.name, JSON.stringify(v.draft), now, v.id, v.revision],
-    ).run();
-    return result.meta.changes ? this.creative(v.id) : null;
-  }
-  async publishCreative(id: string, revision: number, now: string) {
-    // The conditional INSERT and pointer update share one D1 transaction. A stale revision inserts nothing.
+    const content = JSON.stringify(v.draft);
+    // Saving content and switching its published snapshot share one transaction.
+    // Stale revisions insert nothing; unchanged content reuses the current version.
     const results = await this.db.batch<Row>([
       this.statement(
         `INSERT INTO ad_creative_versions(creative_id,version,content,published_at)
-        SELECT id,COALESCE(published_version,0)+1,draft,? FROM ad_creatives WHERE id=? AND revision=?
-        AND NOT EXISTS(SELECT 1 FROM ad_creative_versions v WHERE v.creative_id=ad_creatives.id AND v.version=ad_creatives.published_version AND v.content=ad_creatives.draft)`,
-        [now, id, revision],
+        SELECT id,COALESCE(published_version,0)+1,?,? FROM ad_creatives WHERE id=? AND revision=?
+        AND NOT EXISTS(SELECT 1 FROM ad_creative_versions v WHERE v.creative_id=ad_creatives.id AND v.version=ad_creatives.published_version AND v.content=?)`,
+        [content, now, v.id, v.revision, content],
       ),
       this.statement(
-        `UPDATE ad_creatives SET published_version=COALESCE(published_version,0)+1,revision=revision+1,updated_at=?
-        WHERE id=? AND revision=? AND EXISTS(SELECT 1 FROM ad_creative_versions v WHERE v.creative_id=ad_creatives.id AND v.version=COALESCE(ad_creatives.published_version,0)+1)`,
-        [now, id, revision],
+        `UPDATE ad_creatives SET name=?,draft=?,published_version=CASE
+          WHEN EXISTS(SELECT 1 FROM ad_creative_versions v WHERE v.creative_id=ad_creatives.id AND v.version=COALESCE(ad_creatives.published_version,0)+1)
+          THEN COALESCE(published_version,0)+1 ELSE published_version END,
+        revision=revision+1,updated_at=? WHERE id=? AND revision=?`,
+        [v.name, content, now, v.id, v.revision],
       ),
-      this.statement(`${creativeSelect} WHERE c.id=?`, [id]),
+      this.statement(`${creativeSelect} WHERE c.id=?`, [v.id]),
     ]);
     const row = results[2]!.results[0];
-    const current = row ? decodeCreative(row) : null;
-    // A same-content publish is a no-op only when the expected revision still matches.
-    return results[1]!.meta.changes || current?.revision === revision
-      ? current
-      : null;
+    return results[1]!.meta.changes && row ? decodeCreative(row) : null;
   }
   versions(id: string, q: AdQuery) {
     return this.page(
@@ -218,14 +217,19 @@ export class AdsRepository {
     return r ? decodeVersion(r) : null;
   }
   async deleteCreative(id: string, revision: number) {
-    return (
-      (
-        await this.statement(
-          "DELETE FROM ad_creatives WHERE id=? AND revision=? AND published_version IS NULL AND NOT EXISTS(SELECT 1 FROM ad_placements WHERE creative_id=?)",
-          [id, revision, id],
-        ).run()
-      ).meta.changes > 0
-    );
+    const removable = "id=? AND revision=? AND NOT EXISTS(SELECT 1 FROM ad_placements WHERE creative_id=?)";
+    const results = await this.db.batch([
+      this.statement(
+        `UPDATE ad_creatives SET published_version=NULL WHERE ${removable}`,
+        [id, revision, id],
+      ),
+      this.statement(
+        `DELETE FROM ad_creative_versions WHERE creative_id IN (SELECT id FROM ad_creatives WHERE ${removable})`,
+        [id, revision, id],
+      ),
+      this.statement(`DELETE FROM ad_creatives WHERE ${removable}`, [id, revision, id]),
+    ]);
+    return results[2]!.meta.changes > 0;
   }
 
   async slot(appId: string, key: string) {
@@ -238,8 +242,8 @@ export class AdsRepository {
   slots(appId: string, q: AdQuery) {
     return this.page(
       `SELECT ${slotColumns} FROM ad_slots`,
-      `appId=?${q.enabled === undefined ? "" : " AND enabled=?"}`,
-      q.enabled === undefined ? [appId] : [appId, Number(q.enabled)],
+      "appId=?",
+      [appId],
       "createdAt DESC,slotKey",
       q,
       decodeSlot,
@@ -251,13 +255,12 @@ export class AdsRepository {
     now: string,
   ) {
     const r = await this.statement(
-      `INSERT INTO ad_slots(app_id,slot_key,name,format,enabled,max_items,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(app_id,slot_key) DO NOTHING RETURNING ${slotColumns}`,
+      `INSERT INTO ad_slots(app_id,slot_key,name,format,max_items,created_at,updated_at) VALUES(?,?,?,?,?,?,?) ON CONFLICT(app_id,slot_key) DO NOTHING RETURNING ${slotColumns}`,
       [
         appId,
         v.slotKey,
         v.name,
         v.format,
-        Number(v.enabled),
         v.maxItems,
         now,
         now,
@@ -267,10 +270,9 @@ export class AdsRepository {
   }
   async updateSlot(v: AdSlot, now: string) {
     const r = await this.statement(
-      `UPDATE ad_slots SET name=?,enabled=?,max_items=?,revision=revision+1,updated_at=? WHERE app_id=? AND slot_key=? AND revision=? RETURNING ${slotColumns}`,
+      `UPDATE ad_slots SET name=?,max_items=?,revision=revision+1,updated_at=? WHERE app_id=? AND slot_key=? AND revision=? RETURNING ${slotColumns}`,
       [
         v.name,
-        Number(v.enabled),
         v.maxItems,
         now,
         v.appId,
@@ -397,7 +399,7 @@ export class AdsRepository {
         `SELECT p.campaign_id AS campaignId,p.id AS placementId,p.creative_id AS creativeId,v.version AS publishedVersion,v.content,p.target_url AS targetUrl
         FROM ad_placements p JOIN ad_campaigns a ON a.id=p.campaign_id JOIN ad_slots s ON s.app_id=p.app_id AND s.slot_key=p.slot_key
         JOIN ad_creatives c ON c.id=p.creative_id JOIN ad_creative_versions v ON v.creative_id=c.id AND v.version=c.published_version
-        WHERE p.app_id=? AND p.slot_key=? AND p.enabled=1 AND a.enabled=1 AND s.enabled=1
+        WHERE p.app_id=? AND p.slot_key=? AND p.enabled=1 AND a.enabled=1
         AND c.type=CASE WHEN s.format='card' THEN 'card' ELSE 'image' END
         AND (a.starts_at IS NULL OR a.starts_at<=?) AND (a.ends_at IS NULL OR a.ends_at>?)
         AND (p.starts_at IS NULL OR p.starts_at<=?) AND (p.ends_at IS NULL OR p.ends_at>?)

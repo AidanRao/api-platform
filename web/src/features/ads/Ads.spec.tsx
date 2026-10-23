@@ -76,7 +76,6 @@ beforeEach(() => {
     slotKey: "home",
     name: "首页",
     format: "banner",
-    enabled: true,
     maxItems: 1,
   };
   placement = {
@@ -111,20 +110,6 @@ beforeEach(() => {
           : {};
       if (init?.method && init.method !== "GET")
         writes.push({ url: path, body });
-      if (path === "/api/admin/ads/creatives/ADCR-1/publish") {
-        creative = {
-          ...creative,
-          revision: creative.revision + 1,
-          publishedVersion: 2,
-          published: {
-            creativeId: creative.id,
-            version: 2,
-            content: { ...creative.draft },
-            publishedAt: meta.createdAt,
-          },
-        };
-        return ok(creative);
-      }
       if (path === "/api/admin/ads/creatives/ADCR-1/versions")
         return ok(page(creative.published ? [creative.published] : []));
       if (
@@ -133,8 +118,11 @@ beforeEach(() => {
       )
         return ok(page([placement]));
       if (path === "/api/admin/ads/creatives/ADCR-1") {
-        if (init?.method === "PATCH")
+        if (init?.method === "PATCH") {
           creative = { ...creative, ...body, revision: creative.revision + 1 };
+          creative.publishedVersion = (creative.publishedVersion ?? 0) + 1;
+          creative.published = { creativeId: creative.id, version: creative.publishedVersion, content: { ...creative.draft }, publishedAt: meta.createdAt };
+        }
         return ok(creative);
       }
       if (otherCreative && path === `/api/admin/ads/creatives/${otherCreative.id}`)
@@ -224,8 +212,8 @@ describe("advertising administration", () => {
     const { router } = renderAdmin("/admin/ads/creatives/ADCR-1");
     const title = await screen.findByLabelText("标题");
     const deleteButton = screen.getByRole("button", { name: "删除" }) as HTMLButtonElement;
-    expect(deleteButton.disabled).toBe(true);
-    expect(deleteButton.dataset.variant).toBe("outline");
+    expect(deleteButton.disabled).toBe(false);
+    expect(deleteButton.dataset.variant).toBe("destructive");
     await user.clear(title);
     await user.type(title, "未保存的素材");
     await user.click(screen.getByRole("link", { name: "广告活动" }));
@@ -266,32 +254,33 @@ describe("advertising administration", () => {
       await screen.findByRole("heading", { name: "广告投放" }),
     ).toBeTruthy();
   });
-  it("saves only the draft, shows publishing impact, and exposes read-only version content", async () => {
+  it("publishes with a single save and exposes read-only version content", async () => {
     const user = userEvent.setup();
     renderAdmin("/admin/ads/creatives/ADCR-1");
     const title = await screen.findByLabelText("标题");
     await user.clear(title);
     await user.type(title, "新标题");
-    expect(
-      (screen.getByRole("button", { name: "发布素材" }) as HTMLButtonElement)
-        .disabled,
-    ).toBe(true);
-    await user.click(screen.getByRole("button", { name: "保存草稿" }));
-    await screen.findByText("素材草稿已保存");
-    expect(creative.published!.content.title).toBe("原稿");
-    expect(creative.draft.title).toBe("新标题");
-    await user.click(screen.getByRole("button", { name: "发布素材" }));
-    const dialog = await screen.findByRole("alertdialog");
-    expect(
-      await within(dialog).findByRole("link", {
-        name: "buaa-classhopper / home",
-      }),
-    ).toBeTruthy();
-    await user.click(within(dialog).getByRole("button", { name: "确认发布" }));
-    await screen.findByText("素材已发布 · v2");
+    expect(screen.queryByRole("button", { name: "发布素材" })).toBeNull();
+    await user.click(screen.getByRole("button", { name: "保存素材" }));
+    await screen.findByText("素材已保存并发布");
     expect(creative.published!.content.title).toBe("新标题");
+    expect(creative.draft.title).toBe("新标题");
     expect(await screen.findByText(/^v2 ·/)).toBeTruthy();
+    expect(writes).toHaveLength(1);
+    expect(writes[0]!.url).toBe("/api/admin/ads/creatives/ADCR-1");
     expect(writes[0]!.body).not.toHaveProperty("type");
+  });
+  it("lets an unchanged legacy creative publish through save", async () => {
+    const user = userEvent.setup();
+    creative.publishedVersion = null;
+    creative.published = null;
+    renderAdmin("/admin/ads/creatives/ADCR-1");
+    const save = await screen.findByRole("button", { name: "保存素材" });
+    expect((save as HTMLButtonElement).disabled).toBe(false);
+    await user.click(save);
+    await screen.findByText("素材已保存并发布");
+    expect(creative.publishedVersion).toBe(1);
+    expect(creative.published!.content).toEqual(creative.draft);
   });
   it("retains upload failures and retries without losing existing content", async () => {
     const user = userEvent.setup();
@@ -311,7 +300,7 @@ describe("advertising administration", () => {
       upload,
       new File(["png"], "ad.png", { type: "image/png" }),
     );
-    expect(await screen.findByText("图片已上传，请保存草稿")).toBeTruthy();
+    expect(await screen.findByText("图片已上传，请保存素材")).toBeTruthy();
   });
   it("keeps input on 409 and only adopts a new revision after explicit review", async () => {
     const user = userEvent.setup();
@@ -366,6 +355,36 @@ describe("advertising administration", () => {
     await user.click(screen.getByRole("button", { name: "保存投放" }));
     await waitFor(() => expect(writes).toHaveLength(2));
     expect(writes[1]!.body.targetUrl).toBeNull();
+  });
+  it("hides campaign and slot status in placement summaries and pickers", async () => {
+    const user = userEvent.setup();
+    renderAdmin("/admin/buaa-classhopper/ads/placements/ADPL-1");
+    for (const label of ["活动", "广告位"]) {
+      const summary = await screen.findByRole("group", { name: `已选${label}` });
+      await within(summary).findByText(label === "活动" ? "推广活动" : "首页");
+      expect(within(summary).queryByText(/^(启用|停用)$/)).toBeNull();
+      await user.click(screen.getByRole("button", { name: `更换${label}` }));
+      const drawer = await screen.findByRole("dialog", { name: `选择${label}` });
+      await within(drawer).findByRole("button", { name: new RegExp(`选择${label}：`) });
+      expect(within(drawer).queryByText(/^(启用|停用)$/)).toBeNull();
+      await user.click(within(drawer).getByRole("button", { name: `关闭${label}选择` }));
+    }
+  });
+  it("removes slot status from list and edit form and omits it on save", async () => {
+    const user = userEvent.setup();
+    const { router } = renderAdmin("/admin/buaa-classhopper/ads/slots?enabled=false");
+    await screen.findByRole("link", { name: "首页" });
+    expect(screen.queryByRole("columnheader", { name: "状态" })).toBeNull();
+    expect(screen.queryByText("全部状态")).toBeNull();
+    expect(vi.mocked(fetch).mock.calls.some(([url]) => String(url).includes("enabled="))).toBe(false);
+    await act(() => router.navigate("/admin/buaa-classhopper/ads/slots/home"));
+    const name = await screen.findByLabelText("广告位名称");
+    expect(screen.queryByRole("switch", { name: "启用" })).toBeNull();
+    await user.clear(name);
+    await user.type(name, "新名称");
+    await user.click(screen.getByRole("button", { name: "保存广告位" }));
+    await waitFor(() => expect(writes).toHaveLength(1));
+    expect(writes[0]!.body).not.toHaveProperty("enabled");
   });
   it("loads selected details without opening a library and previews the published creative", async () => {
     creative.draft = { ...creative.draft, title: "未发布的新标题", imageUrl: `${image}?draft` };
@@ -441,6 +460,62 @@ describe("advertising administration", () => {
     await user.click(screen.getByRole("button", { name: "保存投放" }));
     await waitFor(() => expect(writes).toHaveLength(2));
     expect(writes[1]!.body).toMatchObject({ startsAt: null, endsAt: null });
+  });
+  it("shows slot names and published covers and deduplicates shared lookups", async () => {
+    campaign.enabled = true;
+    campaign.startsAt = "2020-01-01T00:00:00.000Z";
+    campaign.endsAt = "2090-01-01T00:00:00.000Z";
+    placement.enabled = true;
+    placement.startsAt = "2021-01-01T00:00:00.000Z";
+    placement.endsAt = "2091-01-01T00:00:00.000Z";
+    creative.draft = { ...creative.draft, imageUrl: `${image}?unsaved` };
+    const fetchImpl = vi.mocked(fetch).getMockImplementation()!;
+    vi.mocked(fetch).mockImplementation(async (input, init) => {
+      if (String(input).startsWith("/api/admin/buaa-classhopper/ads/placements?"))
+        return ok(page([placement, { ...placement, id: "ADPL-2" }]));
+      return fetchImpl(input, init);
+    });
+    renderAdmin("/admin/buaa-classhopper/ads/placements");
+    await waitFor(() => expect(screen.getAllByRole("img", { name: "共享图片封面" })).toHaveLength(2));
+    expect(screen.getAllByText("进行中")).toHaveLength(2);
+    for (const cover of screen.getAllByRole("img", { name: "共享图片封面" })) {
+      expect(cover.getAttribute("src")).toBe(image);
+      const row = cover.closest("tr")!;
+      expect(within(row).getByText("首页")).toBeTruthy();
+      expect(within(row).getByText("共享图片")).toBeTruthy();
+      expect(within(row).queryByText("home")).toBeNull();
+      expect(row.textContent).not.toMatch(/ADPL-/);
+    }
+    for (const path of ["/api/admin/ads/creatives/ADCR-1", "/api/admin/ads/campaigns/ADCA-1", "/api/admin/buaa-classhopper/ads/slots/home"]) {
+      expect(vi.mocked(fetch).mock.calls.filter(([url]) => String(url) === path)).toHaveLength(1);
+    }
+    const user = userEvent.setup();
+    await user.hover(screen.getAllByText("进行中")[0]!);
+    const tooltip = await screen.findByRole("tooltip");
+    expect(tooltip.textContent).toContain("进行时间（上海时间）");
+    expect(tooltip.textContent).toContain("2021/1/1 08:00:00");
+    expect(tooltip.textContent).toContain("2090/1/1 08:00:00");
+    await user.unhover(screen.getAllByText("进行中")[0]!);
+    fireEvent.error(screen.getAllByRole("img", { name: "共享图片封面" })[0]!);
+    expect(screen.getByText("暂无封面")).toBeTruthy();
+  });
+  it("keeps placement actions available when related information fails to load", async () => {
+    campaign.enabled = true;
+    placement.enabled = true;
+    const fetchImpl = vi.mocked(fetch).getMockImplementation()!;
+    let unavailable = true;
+    vi.mocked(fetch).mockImplementation(async (input, init) => {
+      if (String(input) === "/api/admin/ads/campaigns/ADCA-1" && unavailable) return fail(502, "活动加载失败");
+      return fetchImpl(input, init);
+    });
+    const user = userEvent.setup();
+    renderAdmin("/admin/buaa-classhopper/ads/placements");
+    expect(await screen.findByText("状态暂不可用")).toBeTruthy();
+    expect(screen.queryByText("进行中")).toBeNull();
+    expect((screen.getByRole("button", { name: "投放操作：ADPL-1" }) as HTMLButtonElement).disabled).toBe(false);
+    unavailable = false;
+    await user.click(screen.getByRole("button", { name: "关联信息加载失败，重试" }));
+    expect(await screen.findByText("进行中")).toBeTruthy();
   });
   it("toggles placements from the rightmost action menu using the latest revision", async () => {
     const user = userEvent.setup();
