@@ -1,13 +1,9 @@
+import { EditorActions } from "@/components/ui/editor-actions";
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useParams, useSearchParams } from "react-router";
-import { z } from "zod";
 import {
   placementSchema,
-  campaignSchema,
-  creativeSchema,
-  slotSchema,
-  pageSchema,
   type Placement,
   type PlacementInput,
 } from "../../../../src/features/ads/schema";
@@ -16,11 +12,12 @@ import { useApplication } from "../../platform/AppContext";
 import { ErrorNotice, Loading } from "../../platform/feedback";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { CampaignPicker, SlotPicker, CreativePicker } from "./PlacementRecordPicker";
+import { PlacementField } from "./PlacementField";
 import {
   adBase,
   adKey,
   useAdForm,
-  Field,
   Enabled,
   Schedule,
   EditorHeader,
@@ -76,96 +73,8 @@ export default function PlacementEditor() {
     />
   );
 }
-// Paginated selectors keep large libraries usable without fetching every page or silently hiding records.
-function RecordSelect<T>({
-  label,
-  scope,
-  resource,
-  schema,
-  value,
-  onChange,
-  keyOf,
-  labelOf,
-}: {
-  label: string;
-  scope: string | null;
-  resource: string;
-  schema: z.ZodType<T>;
-  value: string;
-  onChange: (v: string) => void;
-  keyOf: (v: T) => string;
-  labelOf: (v: T) => string;
-}) {
-  const [page, setPage] = useState(1);
-  const query = useQuery({
-    queryKey: adKey(scope, resource, "selector", page),
-    queryFn: ({ signal }) =>
-      platformClient(
-        `${adBase(scope, resource)}?page=${page}&pageSize=20`,
-        pageSchema(schema),
-        { signal },
-      ),
-  });
-  return (
-    <div className="space-y-2">
-      <Field label={label}>
-        <select
-          className="mt-2 block w-full rounded-md border bg-background p-2"
-          required
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-        >
-          <option value="">请选择</option>
-          {value && !query.data?.items.some((i) => keyOf(i) === value) && (
-            <option value={value}>{value}</option>
-          )}
-          {query.data?.items.map((item) => (
-            <option value={keyOf(item)} key={keyOf(item)}>
-              {labelOf(item)}
-            </option>
-          ))}
-        </select>
-      </Field>
-      <ErrorNotice error={query.error} />
-      {query.isError && (
-        <Button
-          type="button"
-          variant="outline"
-          onClick={() => void query.refetch()}
-        >
-          重试加载{label}
-        </Button>
-      )}
-      {query.isPending && <p className="text-sm">正在加载…</p>}
-      {query.data && query.data.total > 20 && (
-        <div className="flex items-center gap-2 text-sm">
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            disabled={page === 1}
-            onClick={() => setPage(page - 1)}
-          >
-            上一批
-          </Button>
-          <span>
-            {page} / {Math.ceil(query.data.total / 20)}
-          </span>
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            disabled={page * 20 >= query.data.total}
-            onClick={() => setPage(page + 1)}
-          >
-            下一批
-          </Button>
-        </div>
-      )}
-    </div>
-  );
-}
 function Editor({ id, initial }: { id: string; initial: Placement | null }) {
+  const [selectionError, setSelectionError] = useState<Error | null>(null);
   const app = useApplication();
   const [params] = useSearchParams();
   const form = useAdForm({
@@ -182,65 +91,53 @@ function Editor({ id, initial }: { id: string; initial: Placement | null }) {
   return (
     <div className="space-y-6">
       <EditorHeader
-        path={form.path}
         title={form.saved ? "编辑投放" : "新建投放"}
       />
       {form.notices}
+      <ErrorNotice error={selectionError} />
       <form
-        className="max-w-3xl space-y-5"
+        className="max-w-4xl space-y-6"
         onSubmit={(e) => {
           e.preventDefault();
+          if (!form.draft.campaignId || !form.draft.slotKey || !form.draft.creativeId) {
+            setSelectionError(new Error("请选择活动、广告位和素材"));
+            return;
+          }
           form.save({
             ...form.draft,
             ...(form.saved ? { revision: form.saved.revision } : {}),
           });
         }}
       >
-        <fieldset disabled={form.busy} className="space-y-5">
-          <RecordSelect
-            label="活动"
-            scope={null}
-            resource="campaigns"
-            schema={campaignSchema}
+        <fieldset disabled={form.busy} className="space-y-6">
+          <CampaignPicker
             value={form.draft.campaignId}
-            onChange={(campaignId) => form.edit({ campaignId })}
-            keyOf={(v) => v.id}
-            labelOf={(v) => `${v.name}${v.enabled ? "" : "（停用）"}`}
+            onChange={(campaignId) => { setSelectionError(null); form.edit({ campaignId }); }}
+            disabled={form.busy}
           />
-          <RecordSelect
-            label="广告位"
-            scope={app.id}
-            resource="slots"
-            schema={slotSchema}
+          <SlotPicker
+            appId={app.id}
             value={form.draft.slotKey}
-            onChange={(slotKey) => form.edit({ slotKey })}
-            keyOf={(v) => v.slotKey}
-            labelOf={(v) => `${v.name} · ${v.slotKey}`}
+            onChange={(slotKey) => { setSelectionError(null); form.edit({ slotKey }); }}
+            disabled={form.busy}
           />
-          <RecordSelect
-            label="素材"
-            scope={null}
-            resource="creatives"
-            schema={creativeSchema}
+          <CreativePicker
             value={form.draft.creativeId}
-            onChange={(creativeId) => form.edit({ creativeId })}
-            keyOf={(v) => v.id}
-            labelOf={(v) =>
-              `${v.name} · ${v.type === "card" ? "卡片" : "图片"} · ${v.publishedVersion ? `v${v.publishedVersion}` : "未发布"}`
-            }
+            onChange={(creativeId) => { setSelectionError(null); form.edit({ creativeId }); }}
+            disabled={form.busy}
           />
-          <Field label="点击地址（可选）">
+          <PlacementField label="点击地址（可选）" htmlFor="placement-target-url">
             <Input
-              className="mt-2"
+              id="placement-target-url"
               maxLength={2048}
               placeholder="https://… 或 buaa-classhopper://…"
               value={form.draft.targetUrl ?? ""}
               onChange={(e) => form.edit({ targetUrl: e.target.value || null })}
             />
-          </Field>
-          <Field label="优先级">
+          </PlacementField>
+          <PlacementField label="优先级" htmlFor="placement-priority">
             <Input
-              className="mt-2"
+              id="placement-priority"
               required
               type="number"
               min={-1000000}
@@ -248,14 +145,33 @@ function Editor({ id, initial }: { id: string; initial: Placement | null }) {
               value={form.draft.priority}
               onChange={(e) => form.edit({ priority: Number(e.target.value) })}
             />
-          </Field>
-          <Schedule {...form.draft} onChange={form.edit} />
+          </PlacementField>
+          <PlacementField label="状态">
           <Enabled
             value={form.draft.enabled}
             onChange={(enabled) => form.edit({ enabled })}
           />
+          </PlacementField>
+          <PlacementField label="投放时间">
+          <details className="rounded-lg border p-4">
+            <summary className="cursor-pointer text-sm font-medium">
+              高级设置
+              {(form.draft.startsAt || form.draft.endsAt) && (
+                <span className="ml-2 text-xs font-normal text-muted-foreground">
+                  已设置投放时间
+                </span>
+              )}
+            </summary>
+            <div className="mt-4 space-y-3">
+              <p className="text-sm text-muted-foreground">
+                投放时间留空时跟随活动时间。单独设置后，仅在活动与投放时间的交集内展示。
+              </p>
+              <Schedule {...form.draft} onChange={form.edit} />
+            </div>
+          </details>
+          </PlacementField>
         </fieldset>
-        <div className="flex gap-3">
+        <EditorActions className="pl-28 sm:pl-36 md:pl-40">
           <Button
             disabled={
               form.busy || form.conflict || (!!form.saved && !form.changed)
@@ -269,7 +185,7 @@ function Editor({ id, initial }: { id: string; initial: Placement | null }) {
               onDelete={form.deleteRecord}
             />
           )}
-        </div>
+        </EditorActions>
       </form>
     </div>
   );

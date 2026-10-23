@@ -1,3 +1,4 @@
+import { EditorActions } from "@/components/ui/editor-actions";
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useParams } from "react-router";
@@ -13,6 +14,7 @@ import { uploadImage } from "../../platform/media";
 import { ErrorNotice, Loading } from "../../platform/feedback";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { SegmentedChoice } from "@/components/ui/segmented-choice";
 import { Textarea } from "@/components/ui/textarea";
 import {
   AlertDialog,
@@ -96,7 +98,6 @@ function Editor({ id, initial }: { id: string; initial: Creative | null }) {
   return (
     <div className="space-y-6">
       <EditorHeader
-        path={form.path}
         title={form.saved ? "编辑素材" : "新建素材"}
       >
         <p className="text-sm text-muted-foreground">
@@ -129,19 +130,21 @@ function Editor({ id, initial }: { id: string; initial: Creative | null }) {
                 onChange={(e) => form.edit({ name: e.target.value })}
               />
             </Field>
-            <Field label="素材类型">
-              <select
-                className="mt-2 block w-full rounded-md border bg-background p-2"
+            <div className="space-y-2">
+              <SegmentedChoice<CreativeInput["type"]>
+                label="素材类型"
                 disabled={!!form.saved}
                 value={form.draft.type}
-                onChange={(e) =>
-                  form.edit({ type: e.target.value as CreativeInput["type"] })
-                }
-              >
-                <option value="image">图片（横幅、轮播、开屏）</option>
-                <option value="card">图文卡片</option>
-              </select>
-            </Field>
+                options={[
+                  { value: "image", label: "图片" },
+                  { value: "card", label: "图文卡片" },
+                ]}
+                onChange={(type) => form.edit({ type })}
+              />
+              <p className="text-xs text-muted-foreground">
+                图片适用于横幅、轮播和开屏。
+              </p>
+            </div>
             <Field label="素材图片">
               <Input
                 className="mt-2"
@@ -218,7 +221,7 @@ function Editor({ id, initial }: { id: string; initial: Creative | null }) {
             )}
           </div>
         </fieldset>
-        <div className="flex flex-wrap gap-3">
+        <EditorActions>
           <Button
             disabled={
               form.busy || form.conflict || (!!form.saved && !form.changed)
@@ -280,7 +283,7 @@ function Editor({ id, initial }: { id: string; initial: Creative | null }) {
               />
             </>
           )}
-        </div>
+        </EditorActions>
         {form.changed && form.saved && (
           <p className="text-sm text-muted-foreground">
             请先保存草稿，再发布。

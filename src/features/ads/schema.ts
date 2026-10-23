@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { BUSINESS_KEY_PATTERN } from "../../infrastructure/business-key";
 
 const name = z.string().trim().min(1, "名称不能为空").max(200);
 const id = z.string().min(1).max(100);
@@ -16,7 +17,7 @@ export const formatSchema = z.enum(["banner", "carousel", "card", "splash"]);
 export const creativeTypeSchema = z.enum(["image", "card"]);
 export const slotKeySchema = z
   .string()
-  .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/)
+  .regex(BUSINESS_KEY_PATTERN, "请使用小写字母或数字，可用短横线和下划线分隔")
   .max(100)
   .refine((v) => v !== "new", "new 是管理页面保留标识");
 export const targetUrlSchema = z

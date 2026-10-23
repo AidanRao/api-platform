@@ -17,8 +17,8 @@
 		"ACCESS_BYPASS_LOCAL": "false",
 		"SSO_ISSUER": "https://sso-test.aidanrao.top",
 		"ICLASS_SERVICE_BASE_URL": "http://127.0.0.1:8020",
-		"OSS_BUCKET": "",
-		"OSS_REGION": "",
+		"OSS_BUCKET": "aidan-space",
+		"OSS_REGION": "cn-beijing",
 		"OSS_PREFIX": "api-platform"
 	},
 	"kv_namespaces": [

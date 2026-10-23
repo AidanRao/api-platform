@@ -8,12 +8,20 @@ describe("code-maintained application registry", () => {
     expect(appFromAdminPath("/admin/buaa-classhopper")).toBe(APPS[0]);
     expect(appApiPath("buaa-classhopper", true)).toBe("/api/admin/buaa-classhopper");
   });
+  it("supports underscored App IDs consistently in registry, API paths and management pages", () => {
+    const apps = defineApps([{ id: "second_app-v2", name: "Second" }]);
+    expect(findApp("second_app-v2", apps)).toBe(apps[0]);
+    expect(appFromAdminPath("/admin/second_app-v2/ads/slots/home_banner", apps)).toBe(apps[0]);
+    expect(appApiPath("second_app-v2", true)).toBe("/api/admin/second_app-v2");
+    expect(isAdminPage("/admin/second_app-v2/ads/slots/home_banner", apps)).toBe(true);
+    expect(isAdminPage("/admin/second_app-v2/ads/placements/new", apps)).toBe(true);
+  });
   it.each(["/admin/unknown/", "/admin/", "/admin/index.html", "/admin/buaa-classhopper-other/", "/admin/%62uaa-classhopper/"])("rejects non-registered management paths %s", (path) => {
     expect(appFromAdminPath(path)).toBeUndefined();
   });
   it("rejects duplicates, empty names and reserved or unsafe slugs", () => {
     expect(() => defineApps([{ id: "test", name: "Test" }, { id: "test", name: "Again" }])).toThrow();
-    for (const id of ["", "assets", "index", "admin", "apps", "media", "token", "ads", "../other", "some/app", "foo?bar", "foo_1"]) {
+    for (const id of ["", "assets", "index", "admin", "apps", "media", "token", "ads", "../other", "some/app", "foo?bar", "Some_App", "_foo", "foo_", "foo__bar"]) {
       expect(() => defineApps([{ id, name: "Test" }])).toThrow();
     }
     expect(() => defineApps([{ id: "test", name: " " }])).toThrow();
@@ -31,7 +39,8 @@ describe("platform administration", () => {
     expect(await response.json()).toEqual({ code: 1, msg: "获取成功", data: { items: apps } });
     expect((await createApp().request("https://example.com/api/admin/apps", undefined, env)).status).toBe(401);
     expect((await app.request("https://example.com/api/admin/apps", { method: "POST" }, env)).status).toBe(405);
-    expect((await app.request("https://example.com/api/admin/media/images", { method: "POST" }, env)).status).toBe(503);
+    const withoutOssCredentials = { ...env, OSS_ACCESS_KEY_ID: "", OSS_ACCESS_KEY_SECRET: "" };
+    expect((await app.request("https://example.com/api/admin/media/images", { method: "POST" }, withoutOssCredentials)).status).toBe(503);
     expect((await app.request("https://example.com/api/admin/b/media/images", { method: "POST" }, env)).status).toBe(404);
   });
   it("matches only registered pages and their resource detail routes", () => {

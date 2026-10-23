@@ -1,3 +1,4 @@
+import { EditorActions } from "@/components/ui/editor-actions";
 import { useMemo, useState, type FormEvent, type ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router";
@@ -11,6 +12,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { createApiTokenClient } from "./api";
 import { formatTime } from "./presentation";
+import { useAdminPageTitle } from "../../platform/AdminHeader";
 
 type Expiration = "never" | "7d" | "30d" | "90d" | "1y" | "custom";
 type TokenDraft = { name: string; permissions: string[]; expiresAt?: string };
@@ -60,6 +62,7 @@ export default function CreateApiToken() {
   const [preview, setPreview] = useState<TokenDraft | null>(null);
   const [creating, setCreating] = useState(false);
   const [issuedToken, setIssuedToken] = useState<string | null>(null);
+  useAdminPageTitle(issuedToken ? "保存 Token" : preview ? "预览 Token" : "创建 Token");
   const permissionCount = catalog.data?.groups.reduce((count, group) => count + group.permissions.length, 0) ?? 0;
 
   function review(event: FormEvent<HTMLFormElement>) {
@@ -102,12 +105,11 @@ export default function CreateApiToken() {
   }
 
   return <div className="mx-auto max-w-3xl space-y-6">
-    <nav aria-label="面包屑" className="text-sm text-muted-foreground"><Link className="hover:underline" to={path}>API Token 管理</Link><span className="mx-2">/</span>{issuedToken ? "保存 Token" : preview ? "预览 Token" : "创建 Token"}</nav>
     <h1 className="text-2xl font-semibold">{issuedToken ? "保存新 Token" : preview ? "预览 API Token" : "创建 API Token"}</h1>
     {issuedToken ? <div className="space-y-4 rounded-lg border p-5" role="region" aria-label="新建 API Token">
       <p className="font-medium">Token 已创建，请立即复制并保存。</p><p className="text-sm text-muted-foreground">明文只显示这一次，离开后无法再次查看。</p>
       <Input aria-label="Token 明文" readOnly value={issuedToken} className="font-mono" onFocus={(event) => event.currentTarget.select()} />
-      <div className="flex flex-wrap gap-2"><Button type="button" onClick={() => void copyToken()}>复制 Token</Button><Button asChild variant="outline"><Link to={path}>返回列表</Link></Button></div>
+      <EditorActions><Button type="button" onClick={() => void copyToken()}>复制 Token</Button></EditorActions>
     </div> : catalog.isPending ? <Loading /> : catalog.isError ? <div className="space-y-3"><ErrorNotice error={catalog.error} /><Button type="button" variant="outline" onClick={() => void catalog.refetch()}>重试加载权限</Button></div>
       : preview ? <div className="space-y-6" role="region" aria-label="Token 创建预览">
         <p className="text-sm text-muted-foreground">确认以下信息后再创建 Token。</p>
@@ -124,7 +126,7 @@ export default function CreateApiToken() {
           })}</div>
         </TokenSection>
         <TokenSection title="Token 有效期"><p>{preview.expiresAt ? `${formatTime(preview.expiresAt)}（上海）` : "永不过期"}</p></TokenSection>
-        <div className="flex flex-wrap justify-end gap-2 border-t pt-5"><Button type="button" variant="outline" disabled={creating} onClick={() => setPreview(null)}>返回修改</Button><Button type="button" disabled={creating} onClick={() => void create()}>{creating ? "创建中…" : "确认创建 Token"}</Button></div>
+        <EditorActions className="justify-end"><Button type="button" variant="outline" disabled={creating} onClick={() => setPreview(null)}>返回修改</Button><Button type="button" disabled={creating} onClick={() => void create()}>{creating ? "创建中…" : "确认创建 Token"}</Button></EditorActions>
       </div> : <form className="space-y-6" onSubmit={review}>
         <TokenSection title="Token 名称"><div className="max-w-lg space-y-2"><Label htmlFor="api-token-name">名称</Label><Input id="api-token-name" value={name} onChange={(event) => setName(event.target.value)} maxLength={100} placeholder="例如：签到服务" required /></div></TokenSection>
         <TokenSection title="权限">
@@ -143,7 +145,7 @@ export default function CreateApiToken() {
           </div>
           {expiration === "custom" && <div className="mt-4 max-w-xs space-y-2"><Label htmlFor="api-token-expiry">自定义到期时间</Label><Input id="api-token-expiry" type="datetime-local" value={customExpiration} onChange={(event) => setCustomExpiration(event.target.value)} required /><p className="text-xs text-muted-foreground">按浏览器本地时间填写。</p></div>}
         </TokenSection>
-        <div className="flex flex-wrap justify-between gap-2 border-t pt-5"><Button asChild variant="outline"><Link to={path}>取消</Link></Button><Button type="submit" disabled={permissionCount === 0}>预览 Token</Button></div>
+        <EditorActions className="justify-between"><Button asChild variant="outline"><Link to={path}>取消</Link></Button><Button type="submit" disabled={permissionCount === 0}>预览 Token</Button></EditorActions>
       </form>}
   </div>;
 }

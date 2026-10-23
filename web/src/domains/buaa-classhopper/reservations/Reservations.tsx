@@ -203,7 +203,7 @@ export default function Reservations() {
 
   return <div className="space-y-5">
     <div className="flex flex-wrap items-start justify-between gap-4">
-      <div><h1 className="text-2xl font-semibold tracking-tight">签到预约</h1><p className="mt-1 text-sm text-muted-foreground">查看预约状态、用户和课程安排。</p></div>
+      <div><h1 className="text-2xl font-semibold tracking-tight">签到预约</h1></div>
       <Button variant="outline" disabled={list.isFetching} onClick={() => void list.refetch()}>刷新列表</Button>
     </div>
     <form role="search" className="flex flex-wrap items-center gap-2 rounded-xl border bg-card p-2 shadow-xs" onSubmit={(event) => {

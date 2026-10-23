@@ -29,7 +29,7 @@
 - `/api/another-app/announcement` 公告读取，以及 `/api/admin/another-app/announcement` 管理接口。
 - 自动出现在 `GET /api/admin/apps` 和管理端应用选择器中。
 
-未知 App 的入口和接口返回 404。App ID 使用小写字母、数字、短横线，不允许重复和 `admin/assets/index/apps/media/token/ads` 保留值。前端从 `/api/admin/apps` 获取目录，根据 URL 匹配应用并向业务组件提供 App 上下文；管理 API 的 App 由后端挂载路径绑定，不接受请求体更改。切换应用前检查未保存内容，确认放弃后清除当前应用草稿，不带入其他 App。
+未知 App 的入口和接口返回 404。App ID 使用小写字母、数字，可用单个短横线或下划线分隔，例如 `another-app`、`another_app`；不允许重复和 `admin/assets/index/apps/media/token/ads` 保留值。前端从 `/api/admin/apps` 获取目录，根据 URL 匹配应用并向业务组件提供 App 上下文；管理 API 的 App 由后端挂载路径绑定，不接受请求体更改。切换应用前检查未保存内容，确认放弃后清除当前应用草稿，不带入其他 App。
 
 注册 App 不会自动创建 D1 表，也不提供新增、修改或删除 App 的管理 API；业务表通过迁移显式创建。`app_id` 由代码注册表管理并出现在通用业务表中。更改或删除已有 ID 不会自动迁移、删除数据库记录或 OSS 对象；已有应用应保留稳定 ID。
 
@@ -48,6 +48,29 @@ BUAA 专属签到预约的 SSO、API Token 接口及 D1 表见 [预约文档](./
 前端只共享 `src/apps/schema.ts` 的类型与校验，不能导入 `APPS` 运行时目录。增加应用后目录接口和通用能力自动生效。
 
 管理端采用 Vite + React + TypeScript，React Router Data Mode 处理深链接，TanStack Query 管理读缓存，React Hook Form + Zod 校验公告表单；UI 使用仓库内的 shadcn/ui 源码和 Tailwind CSS 4。组件配置在 `components.json`，业务组件位于各自 feature/domain 目录。
+
+固定且数量较少的单选选项使用公共组件 `web/src/components/ui/segmented-choice.tsx`，通过 `@/components/ui/segmented-choice` 导入。它保留原生单选的键盘操作与表单行为，统一连续灰底、选中描边和短竖分隔线样式；活动、素材等动态记录仍使用列表选择器。
+
+```tsx
+import { SegmentedChoice } from "@/components/ui/segmented-choice";
+
+<SegmentedChoice
+  label="状态"
+  value={status}
+  options={[
+    { value: "all", label: "全部" },
+    { value: "enabled", label: "启用" },
+    { value: "disabled", label: "停用" },
+  ]}
+  onChange={setStatus}
+/>
+```
+
+`value` 与 `onChange` 由调用方控制，支持字符串联合类型；`disabled` 禁用整组，`options[].disabled` 禁用单项。`hideLabel` 只在视觉上隐藏标签，仍保留无障碍名称；`name` 可指定原生表单字段名，默认自动生成以隔离多组控件，`className` 用于调整外层布局。选项与组件属性类型分别导出为 `SegmentedChoiceOption` 和 `SegmentedChoiceProps`。
+
+创建、编辑页的保存、发布、删除等主操作统一使用 `@/components/ui/editor-actions` 的 `EditorActions`。操作栏固定在内容区底部，带顶部分隔线，随侧边栏展开/收起适配宽度；管理框架会根据实际栏高为页面底部留出空间。表单操作栏应放在 `<form>` 内，保留提交按钮原有的校验与提交行为；局部添加、筛选和分页按钮仍放在对应内容处。
+
+顶部导航由 `web/src/platform/AdminHeader.tsx` 统一展示应用、模块与当前创建/编辑层级，并提供返回对应列表的入口，页面正文不重复放置返回链接。多步骤页面可通过 `useAdminPageTitle` 更新当前层级名称，例如 Token 创建、预览和保存阶段。
 
 | 路由 | 行为 |
 | --- | --- |

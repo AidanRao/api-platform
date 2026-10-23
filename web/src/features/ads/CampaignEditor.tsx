@@ -1,3 +1,4 @@
+import { EditorActions } from "@/components/ui/editor-actions";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useParams } from "react-router";
 import {
@@ -73,7 +74,6 @@ function Editor({ id, initial }: { id: string; initial: Campaign | null }) {
   return (
     <div className="space-y-6">
       <EditorHeader
-        path={form.path}
         title={form.saved ? "编辑活动" : "新建活动"}
       />
       {form.notices}
@@ -111,7 +111,7 @@ function Editor({ id, initial }: { id: string; initial: Campaign | null }) {
             onChange={(enabled) => form.edit({ enabled })}
           />
         </fieldset>
-        <div className="flex gap-3">
+        <EditorActions>
           <Button
             disabled={
               form.busy || form.conflict || (!!form.saved && !form.changed)
@@ -125,7 +125,7 @@ function Editor({ id, initial }: { id: string; initial: Campaign | null }) {
               onDelete={form.deleteRecord}
             />
           )}
-        </div>
+        </EditorActions>
       </form>
       {form.saved && (
         <>
