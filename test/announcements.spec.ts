@@ -257,7 +257,9 @@ describe("announcements API and D1", () => {
     expect((await (await invoke(publicPath)).json() as { data: { total: number } }).data.total).toBe(0);
     expect((await invoke(`${admin}/${created.id}`)).status).toBe(404);
     expect((await invoke(`${admin}/${created.id}`, "DELETE", { revision: 2 })).status).toBe(404);
-    expect((await invoke("/api/admin/media/images", "POST")).status).toBe(503);
+    expect((await platform.request("https://example.com/api/admin/media/images", { method: "POST" }, {
+      ...env, OSS_ACCESS_KEY_ID: "", OSS_ACCESS_KEY_SECRET: "",
+    })).status).toBe(503);
     expect((await invoke("/api/second-app/v1/iclass/access-policy")).status).toBe(404);
     expect((await invoke("/api/admin/second-app/v1/iclass/access-policy", "PATCH", {})).status).toBe(404);
     expect((await invoke("/api/admin/not-registered/media/images", "POST")).status).toBe(404);
@@ -305,7 +307,9 @@ describe("announcements API and D1", () => {
     }
   });
   it("reports missing OSS separately without preventing text operations", async () => {
-    expect((await request("/api/admin/media/images", "POST")).status).toBe(503);
+    expect((await app.request("https://example.com/api/admin/media/images", { method: "POST" }, {
+      ...env, OSS_ACCESS_KEY_ID: "", OSS_ACCESS_KEY_SECRET: "",
+    })).status).toBe(503);
     await create();
   });
 });

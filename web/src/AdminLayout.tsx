@@ -6,10 +6,11 @@ import { appsQuery } from "./platform/query";
 import { appLandingPath, sectionsForApp } from "./platform/sections";
 import { DraftProvider, DraftNavigationGuard } from "./platform/drafts";
 import { ErrorNotice, Loading, ToastProvider } from "./platform/feedback";
-import { SidebarProvider, Sidebar, SidebarContent, SidebarHeader, SidebarGroup, SidebarGroupLabel, SidebarMenu, SidebarMenuItem, SidebarMenuButton, SidebarInset, SidebarTrigger, useSidebar } from "@/components/ui/sidebar";
+import { SidebarProvider, Sidebar, SidebarContent, SidebarHeader, SidebarGroup, SidebarGroupLabel, SidebarMenu, SidebarMenuItem, SidebarMenuButton, SidebarInset, useSidebar } from "@/components/ui/sidebar";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { AdminHeader, AdminHeaderProvider } from "./platform/AdminHeader";
 
 export function PlatformLayout() {
   const apps = useQuery(appsQuery);
@@ -17,13 +18,12 @@ export function PlatformLayout() {
   const match = useMatch("/admin/:appId/*");
   const app = apps.data?.items.find((item) => item.id === match?.params.appId);
   useEffect(() => { document.title = app ? `${app.name} · 应用管理` : platformAds ? "API Platform · 平台广告" : "API Platform · 应用管理"; }, [app, platformAds]);
-  return <ToastProvider><DraftProvider><TooltipProvider><SidebarProvider>
-    <Navigation /><SidebarInset><header className="flex h-16 shrink-0 items-center gap-3 border-b px-4 md:px-8">
-      <SidebarTrigger aria-label="切换侧边栏" /><span className="text-sm text-muted-foreground">{platformAds ? "平台广告 · 共享资源" : "应用管理"}</span><span className="text-sm font-medium">{app?.name}</span>
-    </header><main className="mx-auto w-full max-w-7xl min-w-0 space-y-6 p-4 md:p-8">
+  return <ToastProvider><DraftProvider><TooltipProvider><SidebarProvider><AdminHeaderProvider>
+    <Navigation /><SidebarInset><AdminHeader app={app} platformAds={!!platformAds} />
+    <main data-page-content className="mx-auto w-full max-w-7xl min-w-0 space-y-6 p-4 pb-[calc(1rem+var(--editor-actions-height,0px))] md:p-8 md:pb-[calc(2rem+var(--editor-actions-height,0px))]">
       {apps.isPending ? <Loading /> : apps.isError ? <><ErrorNotice error={apps.error} /><Button onClick={() => void apps.refetch()}>重新加载应用列表</Button></> : <Outlet />}
     </main></SidebarInset><DraftNavigationGuard />
-  </SidebarProvider></TooltipProvider></DraftProvider></ToastProvider>;
+  </AdminHeaderProvider></SidebarProvider></TooltipProvider></DraftProvider></ToastProvider>;
 }
 function Navigation() {
   const { data } = useQuery(appsQuery);

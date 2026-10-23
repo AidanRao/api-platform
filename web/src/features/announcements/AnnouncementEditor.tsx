@@ -1,9 +1,10 @@
+import { EditorActions } from "@/components/ui/editor-actions";
 import { useDeferredValue, useEffect, useMemo, useRef, type ClipboardEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import type { z } from "zod";
-import { Link, useNavigate, useParams } from "react-router";
+import { useNavigate, useParams } from "react-router";
 import { createSchema, type Announcement, type CreateAnnouncement } from "../../../../src/features/announcements/schema";
 import { useApplication } from "../../platform/AppContext";
 import { useDraft } from "../../platform/drafts";
@@ -136,7 +137,6 @@ function Editor({ initial, id }: { initial: Announcement | null; id: string }) {
     });
   }
   return <div className="space-y-6">
-    <Button asChild variant="ghost" className="-ml-3"><Link to={path}>← 返回公告列表</Link></Button>
     <header className="space-y-2"><h1 className="text-2xl font-semibold">{saved ? "编辑公告" : "新增草稿"}</h1><p className="text-sm text-muted-foreground">{saved ? `${statusNames[saved.status]} · ${formatTime(saved.publishedAt)}（上海时间）` : "保存为草稿后可发布"}</p></header>
     {session.conflict && <Card><CardHeader><CardTitle>版本冲突，编辑内容已保留</CardTitle></CardHeader><CardContent className="space-y-4">
       {session.latest ? <><details><summary className="cursor-pointer">查看最新版本（版本 {session.latest.revision}）</summary><h3 className="my-3 font-medium">{session.latest.title}</h3>{session.latest.coverUrl ? <img src={session.latest.coverUrl} alt="服务器最新封面" className="max-h-40 max-w-full object-contain" /> : <p>无封面</p>}<p>{statusNames[session.latest.status]} · {session.latest.isPinned ? "置顶" : "未置顶"}</p><p>标签：{session.latest.tags.join("、") || "无"}</p><pre className="max-h-64 overflow-auto whitespace-pre-wrap">{session.latest.content}</pre></details>
@@ -187,10 +187,10 @@ function Editor({ initial, id }: { initial: Announcement | null; id: string }) {
         </div>
       </fieldset>
       {saved?.status === "published" && <p className="text-sm text-muted-foreground">保存后，修改会立即对外公开。</p>}
-      <div className="flex flex-wrap gap-3"><Button type="submit" disabled={busy || session.conflict || (!!saved && !changed)}>{busy ? "处理中…" : saved ? "保存公告" : "保存草稿"}</Button>
+      <EditorActions><Button type="submit" disabled={busy || session.conflict || (!!saved && !changed)}>{busy ? "处理中…" : saved ? "保存公告" : "保存草稿"}</Button>
         {saved && <><Button type="button" variant="outline" disabled={busy || session.conflict || changed} onClick={() => mutation.mutate(async () => { accept(await api.changeStatus(saved.id, saved.revision, saved.status === "published" ? "unpublish" : "publish")); toast.success(saved.status === "published" ? "公告已下架" : "公告已发布"); })}>{saved.status === "published" ? "下架" : "发布"}</Button>
         <AlertDialog><AlertDialogTrigger asChild><Button variant="destructive" type="button" disabled={busy || session.conflict}>删除公告</Button></AlertDialogTrigger><AlertDialogContent><AlertDialogHeader><AlertDialogTitle>删除公告“{saved.title}”？</AlertDialogTitle><AlertDialogDescription>此操作不可恢复。正文引用的图片将保留。</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel>取消</AlertDialogCancel><AlertDialogAction onClick={() => mutation.mutate(async () => { await api.delete(saved.id, saved.revision); removeSession(); void queryClient.invalidateQueries({ queryKey: resourceKey(app.id, "announcements") }); toast.success("公告已删除"); navigate(path); })}>确认删除</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog></>}
-      </div>{changed && saved && <p className="text-sm text-muted-foreground">请先保存更改，再发布或下架。</p>}
+      </EditorActions>{changed && saved && <p className="text-sm text-muted-foreground">请先保存更改，再发布或下架。</p>}
     </form>
   </div>;
 }

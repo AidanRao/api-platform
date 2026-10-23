@@ -1,4 +1,4 @@
-import { cleanup, screen, waitFor } from "@testing-library/react";
+import { cleanup, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -44,12 +44,14 @@ describe("API Token management", () => {
     await user.click(screen.getByRole("checkbox", { name: /读取签到预约详情/ }));
     await user.click(screen.getByRole("button", { name: "预览 Token" }));
     expect(await screen.findByRole("region", { name: "Token 创建预览" })).not.toBeNull();
+    expect(within(screen.getByRole("navigation", { name: "当前位置" })).getByText("预览 Token")).toBeTruthy();
     expect(fetchMock.mock.calls.some((call) => call[1]?.method === "POST")).toBe(false);
     await user.click(screen.getByRole("button", { name: "返回修改" }));
     expect((screen.getByLabelText("名称") as HTMLInputElement).value).toBe("签到服务");
     await user.click(screen.getByRole("button", { name: "预览 Token" }));
     await user.click(screen.getByRole("button", { name: "确认创建 Token" }));
     expect(await screen.findByRole("region", { name: "新建 API Token" })).not.toBeNull();
+    expect(within(screen.getByRole("navigation", { name: "当前位置" })).getByText("保存 Token")).toBeTruthy();
     expect((screen.getByLabelText("Token 明文") as HTMLInputElement).value).toBe(tokenValue);
     expect(screen.queryByLabelText("名称")).toBeNull();
     const writeText = vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue();

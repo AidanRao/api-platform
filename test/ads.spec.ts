@@ -383,6 +383,49 @@ describe("shared ads", () => {
   });
 });
 describe("ads API boundaries", () => {
+  it("supports underscored App and slot keys through management and public delivery", async () => {
+    const appId = "snake_app";
+    const slotKey = "announcement_top-banner";
+    const instance = createApp(
+      async () => ({ subject: "admin", email: "admin@test.com" }),
+      () => now,
+      defineApps([{ id: appId, name: "Snake" }]),
+    );
+    const call = async (path: string, method = "GET", body?: unknown) => instance.request(
+      `https://example.com${path}`,
+      { method, ...(body === undefined ? {} : { headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }) },
+      testEnv,
+    );
+    const a = await campaign();
+    const c = await publish(await creative());
+    const slotPath = `${scoped(appId)}/slots/${slotKey}`;
+    const created = await call(`${scoped(appId)}/slots`, "POST", {
+      slotKey, name: "公告顶部", format: "banner", enabled: true,
+    }).then(read<AdSlot>);
+    expect(created.slotKey).toBe(slotKey);
+    expect((await call(slotPath).then(read<AdSlot>)).slotKey).toBe(slotKey);
+    await call(slotPath, "PATCH", { name: "公告广告", revision: 1 }).then(read);
+    const p = await call(`${scoped(appId)}/placements`, "POST", {
+      campaignId: a.id, creativeId: c.id, slotKey, enabled: true,
+    }).then(read<Placement>);
+    await call(`${scoped(appId)}/placements/${p.id}`, "PATCH", { slotKey, revision: 1 }).then(read);
+    const listed = await call(`${scoped(appId)}/placements?slotKey=${slotKey}`).then(read<{ total: number; items: Placement[] }>);
+    expect(listed.total).toBe(1);
+    expect(listed.items[0]?.slotKey).toBe(slotKey);
+    const delivered = await call(publicUrl(appId, slotKey)).then(read<{ slotKey: string; items: { placementId: string }[] }>);
+    expect(delivered.slotKey).toBe(slotKey);
+    expect(delivered.items[0]?.placementId).toBe(p.id);
+    await call(`${scoped(appId)}/placements/${p.id}`, "DELETE", { revision: 2 }).then(read);
+    await call(slotPath, "DELETE", { revision: 2 }).then(read);
+    expect((await call(publicUrl(appId, slotKey))).status).toBe(404);
+  });
+  it("continues rejecting reserved slot keys and URL path separators", async () => {
+    for (const slotKey of ["new", "bad/key", "bad key", "../slot"]) {
+      expect((await request(`${scoped()}/slots`, "POST", {
+        slotKey, name: "无效广告位", format: "banner",
+      })).status).toBe(400);
+    }
+  });
   it("rejects malformed bodies and invalid slot sizes, and allows paused delivery to resume", async () => {
     const malformed = await app.request(
       `https://example.com${base}/campaigns`,

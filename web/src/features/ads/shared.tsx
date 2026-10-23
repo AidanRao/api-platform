@@ -322,19 +322,14 @@ export function Schedule({
   );
 }
 export function EditorHeader({
-  path,
   title,
   children,
 }: {
-  path: string;
   title: string;
   children?: ReactNode;
 }) {
   return (
     <header className="space-y-3">
-      <Link className="text-sm text-muted-foreground hover:underline" to={path}>
-        ← 返回列表
-      </Link>
       <h1 className="text-2xl font-semibold">{title}</h1>
       {children}
     </header>
@@ -350,7 +345,7 @@ export function DeleteButton({
   return (
     <AlertDialog>
       <AlertDialogTrigger asChild>
-        <Button type="button" variant="destructive" disabled={disabled}>
+        <Button type="button" variant={disabled ? "outline" : "destructive"} disabled={disabled}>
           删除
         </Button>
       </AlertDialogTrigger>
@@ -363,7 +358,11 @@ export function DeleteButton({
         </AlertDialogHeader>
         <AlertDialogFooter>
           <AlertDialogCancel>取消</AlertDialogCancel>
-          <AlertDialogAction onClick={onDelete}>确认删除</AlertDialogAction>
+          <AlertDialogAction
+            variant={disabled ? "outline" : "destructive"}
+            disabled={disabled}
+            onClick={onDelete}
+          >确认删除</AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>

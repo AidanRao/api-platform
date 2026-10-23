@@ -13,6 +13,8 @@ import {
   pageSchema,
 } from "../../../../src/features/ads/schema";
 import { adBase, adKey, formatNames, pagePath, time } from "./shared";
+import { PlacementActions } from "./PlacementActions";
+import { SegmentedChoice } from "@/components/ui/segmented-choice";
 const labels = {
   campaigns: "广告活动",
   creatives: "共享素材",
@@ -82,16 +84,17 @@ function AdsList({
       </header>
       <div className="flex flex-wrap gap-3">
         {resource !== "creatives" && (
-          <select
-            aria-label="启用状态"
-            className="rounded-md border bg-background px-3 py-2 text-sm"
+          <SegmentedChoice
+            label="启用状态"
+            hideLabel
             value={params.get("enabled") ?? ""}
-            onChange={(e) => update("enabled", e.target.value)}
-          >
-            <option value="">全部状态</option>
-            <option value="true">启用</option>
-            <option value="false">停用</option>
-          </select>
+            options={[
+              { value: "", label: "全部状态" },
+              { value: "true", label: "启用" },
+              { value: "false", label: "停用" },
+            ]}
+            onChange={(enabled) => update("enabled", enabled)}
+          />
         )}
         {resource === "placements" &&
           [
@@ -130,6 +133,7 @@ function AdsList({
                     {resource === "creatives" ? "发布版本" : "配置"}
                   </th>
                   <th className="p-3">更新时间（上海）</th>
+                  {resource === "placements" && <th className="p-3">操作</th>}
                 </tr>
               </thead>
               <tbody>
@@ -174,13 +178,22 @@ function AdsList({
                       <td className="whitespace-nowrap p-3">
                         {time(item.updatedAt)}
                       </td>
+                      {resource === "placements" && "creativeId" in item && (
+                        <td className="p-3">
+                          <PlacementActions
+                            key={`${scope}/${item.id}`}
+                            placement={item}
+                            disabled={data.isFetching}
+                          />
+                        </td>
+                      )}
                     </tr>
                   );
                 })}
                 {!data.data.items.length && (
                   <tr>
                     <td
-                      colSpan={4}
+                      colSpan={resource === "placements" ? 5 : 4}
                       className="p-8 text-center text-muted-foreground"
                     >
                       暂无记录

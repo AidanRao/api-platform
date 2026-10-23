@@ -1,3 +1,4 @@
+import { EditorActions } from "@/components/ui/editor-actions";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { AccessPolicy } from "../../../../../src/domains/buaa-classhopper/access-policy/schema";
 import { fetchPolicy, patchPolicy, PolicyApiError } from "./api";
@@ -60,8 +61,8 @@ function WhitelistEditor({ initial }: { initial: AccessPolicy }) {
     <div className="grid gap-6 lg:grid-cols-2">{([{ title: "学号白名单", field: "studentIds", inputLabel: "新增学号", placeholder: "例如 23370003" }, { title: "姓名白名单", field: "names", inputLabel: "新增姓名", placeholder: "例如 王五" }] as const).map((section) => <WhitelistSection key={section.field} {...section} policy={policy} draft={draft} disabled={save.isPending} onAdd={add}
       onRemove={(field, value) => { setSession((previous) => ({ ...previous, draft: stageRemoval(previous.draft, field, value) })); }}
       onUndo={(field, value) => setSession((previous) => ({ ...previous, draft: undoRemoval(previous.draft, field, value) }))} />)}</div>
-    <footer className="flex flex-wrap items-center justify-between gap-4 border-t pt-6"><p className="text-sm text-muted-foreground">{counts.total === 0 ? "当前没有未保存的更改" : "更改保存在当前会话，保存后才会生效"}</p><div className="flex gap-3">
+    <EditorActions className="justify-between"><p className="text-sm text-muted-foreground">{counts.total === 0 ? "当前没有未保存的更改" : "更改保存在当前会话，保存后才会生效"}</p><div className="flex gap-3">
       <Button variant="outline" disabled={save.isPending || counts.total === 0} onClick={() => { setSession({ policy, draft: createEmptyDraft() }); toast.info("已放弃未保存的更改"); }}>放弃更改</Button>
-      <Button disabled={save.isPending || counts.total === 0} onClick={() => save.mutate()}>{save.isPending ? "保存中…" : "保存更改"}</Button></div></footer>
+      <Button disabled={save.isPending || counts.total === 0} onClick={() => save.mutate()}>{save.isPending ? "保存中…" : "保存更改"}</Button></div></EditorActions>
   </div>;
 }

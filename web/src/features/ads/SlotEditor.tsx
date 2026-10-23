@@ -1,3 +1,4 @@
+import { EditorActions } from "@/components/ui/editor-actions";
 import { useQuery } from "@tanstack/react-query";
 import { useParams } from "react-router";
 import {
@@ -10,6 +11,7 @@ import { useApplication } from "../../platform/AppContext";
 import { ErrorNotice, Loading } from "../../platform/feedback";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { SegmentedChoice } from "@/components/ui/segmented-choice";
 import {
   adBase,
   adKey,
@@ -77,7 +79,6 @@ function Editor({ id, initial }: { id: string; initial: AdSlot | null }) {
   return (
     <div className="space-y-6">
       <EditorHeader
-        path={form.path}
         title={form.saved ? "编辑广告位" : "新建广告位"}
       />
       {form.notices}
@@ -103,34 +104,35 @@ function Editor({ id, initial }: { id: string; initial: AdSlot | null }) {
               onChange={(e) => form.edit({ name: e.target.value })}
             />
           </Field>
-          <Field label="广告位标识">
-            <Input
-              className="mt-2"
-              required
-              maxLength={100}
-              disabled={!!form.saved}
-              value={form.draft.slotKey}
-              placeholder="home-banner"
-              onChange={(e) => form.edit({ slotKey: e.target.value })}
-            />
-          </Field>
-          <Field label="展示形式">
-            <select
-              className="mt-2 block w-full rounded-md border bg-background p-2"
-              disabled={!!form.saved}
-              value={form.draft.format}
-              onChange={(e) => {
-                const format = e.target.value as SlotInput["format"];
-                form.edit({ format, maxItems: format === "carousel" ? 5 : 1 });
-              }}
-            >
-              {Object.entries(formatNames).map(([value, label]) => (
-                <option key={value} value={value}>
-                  {label}
-                </option>
-              ))}
-            </select>
-          </Field>
+          <div className="space-y-2">
+            <Field label="广告位标识">
+              <Input
+                className="mt-2"
+                required
+                maxLength={100}
+                disabled={!!form.saved}
+                value={form.draft.slotKey}
+                placeholder="announcement_top_banner"
+                aria-describedby="slot-key-hint"
+                onChange={(e) => form.edit({ slotKey: e.target.value })}
+              />
+            </Field>
+            <p id="slot-key-hint" className="text-xs text-muted-foreground">
+              支持小写字母、数字，可用短横线（-）或下划线（_）分隔，最长 100 字符。
+            </p>
+          </div>
+          <SegmentedChoice
+            label="展示形式"
+            disabled={!!form.saved}
+            value={form.draft.format}
+            options={Object.entries(formatNames).map(([value, label]) => ({
+              value: value as SlotInput["format"],
+              label,
+            }))}
+            onChange={(format) =>
+              form.edit({ format, maxItems: format === "carousel" ? 5 : 1 })
+            }
+          />
           {form.draft.format === "carousel" && (
             <Field label="最多返回条数">
               <Input
@@ -151,7 +153,7 @@ function Editor({ id, initial }: { id: string; initial: AdSlot | null }) {
             onChange={(enabled) => form.edit({ enabled })}
           />
         </fieldset>
-        <div className="flex gap-3">
+        <EditorActions>
           <Button
             disabled={
               form.busy || form.conflict || (!!form.saved && !form.changed)
@@ -165,7 +167,7 @@ function Editor({ id, initial }: { id: string; initial: AdSlot | null }) {
               onDelete={form.deleteRecord}
             />
           )}
-        </div>
+        </EditorActions>
       </form>
     </div>
   );
