@@ -239,6 +239,8 @@ fedcba9876543210fedcba9876543210
 
 ### 7.2 重新生成绑定类型
 
+修改 `wrangler.jsonc`、`.dev.vars.example` 或升级 Wrangler 后，重新生成并提交 `worker-configuration.d.ts`。生成和校验脚本均使用已提交的 `.dev.vars.example`，保证本地与 GitHub Actions 的输入一致。
+
 ```bash
 npm run types
 npm run types:check

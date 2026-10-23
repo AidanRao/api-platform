@@ -9,7 +9,7 @@
     "build:production": "CLOUDFLARE_ENV=production vite build",
     "preview": "vite build --mode preview && vite preview --mode preview",
     "types": "wrangler types --env-file .dev.vars.example",
-    "types:check": "wrangler types --check",
+    "types:check": "wrangler types --env-file .dev.vars.example --check",
     "typecheck:worker": "tsc --noEmit",
     "typecheck:web": "tsc --noEmit -p tsconfig.web.json",
     "typecheck": "npm run typecheck:worker && npm run typecheck:web",
