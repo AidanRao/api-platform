@@ -2,7 +2,7 @@ import { env } from "cloudflare:workers";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { clean, migrate, read, request, segment } from "./segment-fixture";
 import { emptyMembers, type Segment } from "../src/features/segments/schema";
-import type { AccessPolicy, PolicyConfig } from "../src/domains/buaa-classhopper/access-policy/schema";
+import { accessPolicySchema, type AccessPolicy, type PolicyConfig } from "../src/domains/buaa-classhopper/access-policy/schema";
 import { ADMIN_ACCESS_POLICY_PATH as admin, PUBLIC_ACCESS_POLICY_PATH as publicPath } from "../src/domains/buaa-classhopper/access-policy/routes";
 import { ACCESS_POLICY_KEY, AccessPolicyRepository } from "../src/domains/buaa-classhopper/access-policy/repository";
 
@@ -13,7 +13,7 @@ describe("segment-backed iClass whitelist", () => {
     await env.API_PLATFORM_KV.put("buaa-classhopper:iclass:access-policy:v1", JSON.stringify({ names: ["legacy"] }));
     expect(await request(admin).then(read<PolicyConfig>)).toEqual({ revision: 1, segmentIds: [] });
     const response = await publicPolicy(); expect(response.headers.get("Cache-Control")).toBe("public, max-age=60"); expect(response.headers.get("Vary")).toBe("X-App-Version");
-    expect((await read<AccessPolicy>(response)).members).toEqual({ student_name: [], student_id: [] });
+    expect(await read<AccessPolicy>(response)).toEqual({ schemaVersion: 1, revision: expect.any(String), studentIds: [], names: [] });
     expect((await request(publicPath)).status).toBe(400);
     expect((await request(publicPath, "GET", undefined, { "X-App-Version": "1.5.0" })).status).toBe(426);
     expect((await request(admin, "PATCH", { add: { names: ["old"] } })).status).toBe(405);
@@ -26,10 +26,12 @@ describe("segment-backed iClass whitelist", () => {
     const tables = await env.API_PLATFORM_DB.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'buaa_iclass_%'").all();
     expect(tables.results).toEqual([]);
     const before = await publicPolicy().then(read<AccessPolicy>);
-    expect(before.members).toEqual({ student_name: ["张三", "李四"], student_id: ["01"] });
-    expect(before.members).not.toHaveProperty("sso_id");
+    expect(before).toEqual({ schemaVersion: 1, revision: expect.any(String), studentIds: ["01"], names: ["张三", "李四"] });
+    expect(accessPolicySchema.parse(before)).toEqual(before);
+    expect(before).not.toHaveProperty("members"); expect(before).not.toHaveProperty("sso_id");
+    expect((await publicPolicy().then(read<AccessPolicy>)).revision).toBe(before.revision);
     await request(`/api/admin/segments/${a.id}`, "PUT", { revision: 1, name: "a", members: { ...emptyMembers(), student_id: ["02"] } }).then(read<Segment>);
-    const after = await publicPolicy().then(read<AccessPolicy>); expect(after.revision).not.toBe(before.revision); expect(after.members.student_id).toEqual(["02"]);
+    const after = await publicPolicy().then(read<AccessPolicy>); expect(after.revision).not.toBe(before.revision); expect(after.studentIds).toEqual(["02"]);
     expect((await request(admin).then(read<PolicyConfig>)).revision).toBe(2);
   });
   it("rejects observed stale edits and validates references before writing KV", async () => {
@@ -46,7 +48,7 @@ describe("segment-backed iClass whitelist", () => {
     expect((await publicPolicy()).status).toBe(503);
     expect((await request(admin).then(read<PolicyConfig>)).segmentIds).toEqual([s.id]);
     await request(admin, "PUT", { revision: 2, segmentIds: [] }).then(read<PolicyConfig>);
-    expect((await publicPolicy().then(read<AccessPolicy>)).members).toEqual({ student_name: [], student_id: [] });
+    expect(await publicPolicy().then(read<AccessPolicy>)).toEqual({ schemaVersion: 1, revision: expect.any(String), studentIds: [], names: [] });
   });
   it("returns 503 for corrupt configuration and KV read/write failures", async () => {
     await env.API_PLATFORM_KV.put(ACCESS_POLICY_KEY, "not-json");

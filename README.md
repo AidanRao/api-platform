@@ -24,14 +24,14 @@ X-App-Version: 1.5.1
 公开读取检查三段数字的 `X-App-Version`，最低为 `1.5.1`；缺失或非法返回 400，版本过低返回 426。成功使用 `Cache-Control: public, max-age=60` 和 `Vary: X-App-Version`，错误使用 no-store。
 
 ```json
-{"code":1,"msg":"获取成功","data":{"revision":"<opaque hash>","members":{"student_name":["张三"],"student_id":["23370001"]}}}
+{"code":1,"msg":"获取成功","data":{"schemaVersion":1,"revision":"<opaque hash>","studentIds":["23370001"],"names":["张三"]}}
 ```
 
 名单由引用的 Segment 分字段合并去重。revision 是不透明字符串，配置或所引用人群修订号变更时改变，客户端只比较是否相同。未关联人群返回空名单，已引用名单不可读返回 503。
 
 管理接口仍为 `/api/admin/buaa-classhopper/v1/iclass/access-policy`，使用 Cloudflare Access，无需版本头。GET 返回 `{revision:1,segmentIds:[]}`；PUT 使用 `{revision,segmentIds}` 整体替换引用，已观察到的过期修订返回 409，人群不存在或不可读返回 503。配置以 `{revision,segmentIds}` 存入 KV，不创建白名单 D1 表。KV 不提供原子比较写入，不能保证并发编辑互斥。旧名单增删 PATCH 协议已移除。
 
-Android 客户端需要适配 `members.student_name/student_id` 和不透明 revision。本仓库不修改客户端，不保留旧字段或旧 KV 回退。完整协议见 [Segment 文档](./docs/SEGMENTS.md)。
+公开响应沿用客户端原有的 `schemaVersion:1`、`revision`、`studentIds` 和 `names` 字段，将 Segment 的学号、姓名分别映射为 `studentIds` 和 `names`，不暴露 `members` 或 `sso_id`。revision 仍为不透明字符串，现有客户端按原字段读取即可。不读取旧 KV 名单。完整协议见 [Segment 文档](./docs/SEGMENTS.md)。
 
 ## 代码结构
 
