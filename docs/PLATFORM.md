@@ -105,7 +105,7 @@ import { SegmentedChoice } from "@/components/ui/segmented-choice";
 
 ## 公共数据库
 
-D1 绑定为 `API_PLATFORM_DB`，建议数据库名为 `api-platform`。公告使用迁移 `0001`–`0003`；签到预约与 API Token 使用 `0004`；广告使用 `0005`–`0006`；平台 Segment、应用版本（含行内 Segment ID 数组）和最新版本设置使用重写后的 `0007_app_versions.sql`。个人名单仅由 Segment 存在 KV 中，版本和白名单不再维护各自名单。
+D1 绑定为 `API_PLATFORM_DB`，建议数据库名为 `api-platform`。公告使用迁移 `0001`–`0003`；签到预约与 API Token 使用 `0004`；广告使用 `0005`–`0006`；平台 Segment、应用版本（含行内 Segment ID 数组）和最新版本设置使用 `0007_app_versions.sql`，安装包 JSON 与 versionCode 使用后续 `0008_version_package_info.sql`。个人名单仅由 Segment 存在 KV 中，版本和白名单不再维护各自名单。
 
 本地：
 

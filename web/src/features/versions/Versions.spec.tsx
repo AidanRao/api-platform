@@ -5,7 +5,7 @@ import { renderAdmin, ok, fail } from "../../test-utils";
 import type { AppVersion } from "../../../../src/features/versions/schema";
 
 const base = "/api/admin/buaa-classhopper/versions", path = "/admin/buaa-classhopper/versions", segmentId = "SEGM-20261024-AAAAAAAAAA";
-const initial: AppVersion = { version: "1.4.1", releaseType: "gray", releaseNotes: "## 更新说明", downloadUrl: null, downloadSizeBytes: null, revision: 1, createdAt: "2026-10-24T00:00:00Z", updatedAt: "2026-10-24T00:00:00Z", segmentIds: [] };
+const initial: AppVersion = { versionCode: 1, version: "1.4.1", releaseType: "gray", releaseNotes: "## 更新说明", packageInfo: null, revision: 1, createdAt: "2026-10-24T00:00:00Z", updatedAt: "2026-10-24T00:00:00Z", segmentIds: [] };
 let items: AppVersion[], latestVersion: string | null, revision: number, conflict: boolean;
 beforeEach(() => {
   items = [{ ...initial, segmentIds: [] }, { ...initial, version: "1.5.0", segmentIds: [] }]; latestVersion = null; revision = 1; conflict = false;
@@ -38,15 +38,17 @@ describe("version management", () => {
     const user = userEvent.setup(), { router } = renderAdmin(`${path}/new`);
     expect((await screen.findByRole("radio", { name: "灰度" }) as HTMLInputElement).checked).toBe(true);
     fireEvent.change(await screen.findByLabelText("版本号"), { target: { value: "1.6.0" } });
+    fireEvent.change(screen.getByLabelText("versionCode"), { target: { value: "2" } });
     await user.click(screen.getByRole("tab", { name: "安装包" }));
-    fireEvent.change(screen.getByLabelText("下载地址（可选）"), { target: { value: "https://cdn.example.com/app.apk" } });
-    fireEvent.change(screen.getByLabelText("文件大小（字节，可选）"), { target: { value: "1000" } });
+    fireEvent.change(screen.getByLabelText("下载地址"), { target: { value: "https://cdn.example.com/app.apk" } });
+    fireEvent.change(screen.getByLabelText("SHA-256"), { target: { value: "a".repeat(64) } });
+    fireEvent.change(screen.getByLabelText("文件大小（字节）"), { target: { value: "1000" } });
     await user.click(screen.getByRole("tab", { name: "基本信息" }));
     fireEvent.change(screen.getByLabelText("更新说明（Markdown）"), { target: { value: "**新增功能**" } });
     await screen.findByText("新增功能", { selector: "strong" }); expect(writes()).toHaveLength(0);
     await user.click(screen.getByRole("button", { name: "保存版本" }));
     await waitFor(() => expect(router.state.location.pathname).toBe(`${path}/1.6.0`));
-    expect(JSON.parse(writes()[0]![1]!.body as string)).toEqual({ version: "1.6.0", releaseType: "gray", segmentIds: [], downloadUrl: "https://cdn.example.com/app.apk", downloadSizeBytes: 1000, releaseNotes: "**新增功能**" });
+    expect(JSON.parse(writes()[0]![1]!.body as string)).toEqual({ version: "1.6.0", versionCode: 2, releaseType: "gray", segmentIds: [], packageInfo: { downloadUrl: "https://cdn.example.com/app.apk", downloadSizeBytes: 1000, sha256: "a".repeat(64) }, releaseNotes: "**新增功能**" });
     await waitFor(() => expect((screen.getByLabelText("版本号") as HTMLInputElement).readOnly).toBe(true));
   });
   it("retains metadata edits and requires explicit revision adoption after a conflict", async () => {
@@ -71,8 +73,9 @@ describe("version management", () => {
     expect(screen.getByRole("checkbox", { name: /内测人群/ }).getAttribute("data-state")).toBe("checked");
     await user.click(screen.getByRole("tab", { name: "安装包" }));
     expect(screen.queryByLabelText("版本号")).toBeNull();
-    fireEvent.change(screen.getByLabelText("下载地址（可选）"), { target: { value: "https://cdn.example.com/new.apk" } });
-    fireEvent.change(screen.getByLabelText("文件大小（字节，可选）"), { target: { value: "1024" } });
+    fireEvent.change(screen.getByLabelText("下载地址"), { target: { value: "https://cdn.example.com/new.apk" } });
+    fireEvent.change(screen.getByLabelText("SHA-256"), { target: { value: "a".repeat(64) } });
+    fireEvent.change(screen.getByLabelText("文件大小（字节）"), { target: { value: "1024" } });
     await user.click(screen.getByRole("tab", { name: "基本信息" }));
     expect((screen.getByLabelText("更新说明（Markdown）") as HTMLTextAreaElement).value).toBe("**新增功能**");
     expect(screen.getByRole("checkbox", { name: /内测人群/ }).getAttribute("data-state")).toBe("checked");
@@ -80,33 +83,36 @@ describe("version management", () => {
     await user.click(screen.getByRole("button", { name: "保存版本" }));
     await waitFor(() => expect(writes()).toHaveLength(1));
     expect(writes()[0]![0]).toBe(`${base}/1.4.1`);
-    expect(JSON.parse(writes()[0]![1]!.body as string)).toMatchObject({ revision: 1, releaseNotes: "**新增功能**", releaseType: "gray", segmentIds: [segmentId], downloadUrl: "https://cdn.example.com/new.apk", downloadSizeBytes: 1024 });
+    expect(JSON.parse(writes()[0]![1]!.body as string)).toMatchObject({ revision: 1, releaseNotes: "**新增功能**", releaseType: "gray", segmentIds: [segmentId], packageInfo: { downloadUrl: "https://cdn.example.com/new.apk", downloadSizeBytes: 1024, sha256: "a".repeat(64) } });
   });
   it("creates a gray version with segment selection in one request", async () => {
     const user = userEvent.setup(); renderAdmin(`${path}/new`);
     fireEvent.change(await screen.findByLabelText("版本号"), { target: { value: "1.6.0" } });
+    fireEvent.change(screen.getByLabelText("versionCode"), { target: { value: "2" } });
     await user.click(await screen.findByRole("checkbox", { name: /内测人群/ }));
     await user.click(screen.getByRole("tab", { name: "安装包" }));
     await user.click(screen.getByRole("button", { name: "保存版本" }));
     await waitFor(() => expect(items.find((item) => item.version === "1.6.0")?.segmentIds).toEqual([segmentId]));
     expect(writes()).toHaveLength(1);
-    expect(JSON.parse(writes()[0]![1]!.body as string)).toMatchObject({ version: "1.6.0", releaseType: "gray", segmentIds: [segmentId] });
+    expect(JSON.parse(writes()[0]![1]!.body as string)).toMatchObject({ version: "1.6.0", versionCode: 2, releaseType: "gray", segmentIds: [segmentId] });
   });
   it("opens the tab containing invalid fields without losing the other tab's input", async () => {
     const user = userEvent.setup(); renderAdmin(`${path}/new`);
     await screen.findByLabelText("版本号");
     await user.click(screen.getByRole("tab", { name: "安装包" }));
-    fireEvent.change(screen.getByLabelText("下载地址（可选）"), { target: { value: "https://cdn.example.com/app.apk" } });
+    fireEvent.change(screen.getByLabelText("下载地址"), { target: { value: "https://cdn.example.com/app.apk" } });
     await user.click(screen.getByRole("button", { name: "保存版本" }));
     await screen.findByLabelText("版本号");
     expect(writes()).toHaveLength(0);
     fireEvent.change(screen.getByLabelText("版本号"), { target: { value: "1.6.0" } });
+    fireEvent.change(screen.getByLabelText("versionCode"), { target: { value: "2" } });
     await user.click(screen.getByRole("tab", { name: "安装包" }));
-    expect((screen.getByLabelText("下载地址（可选）") as HTMLInputElement).value).toBe("https://cdn.example.com/app.apk");
-    fireEvent.change(screen.getByLabelText("文件大小（字节，可选）"), { target: { value: "0" } });
+    expect((screen.getByLabelText("下载地址") as HTMLInputElement).value).toBe("https://cdn.example.com/app.apk");
+    fireEvent.change(screen.getByLabelText("SHA-256"), { target: { value: "a".repeat(64) } });
+    fireEvent.change(screen.getByLabelText("文件大小（字节）"), { target: { value: "0" } });
     await user.click(screen.getByRole("tab", { name: "基本信息" }));
     await user.click(screen.getByRole("button", { name: "保存版本" }));
-    await screen.findByLabelText("文件大小（字节，可选）");
+    await screen.findByLabelText("文件大小（字节）");
     expect(writes()).toHaveLength(0);
   });
   it("changes gray to full and clears segment references on save", async () => {

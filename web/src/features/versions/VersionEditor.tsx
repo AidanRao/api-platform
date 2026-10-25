@@ -20,9 +20,9 @@ import { AlertDialog, AlertDialogTrigger, AlertDialogContent, AlertDialogHeader,
 import { createVersionClient } from "./api";
 import "../../platform/resource-theme.css";
 
-type Draft = { version: string; releaseType: AppVersion["releaseType"]; segmentIds: string[]; releaseNotes: string; downloadUrl: string; size: string };
-const empty: Draft = { version: "", releaseType: "gray", segmentIds: [], releaseNotes: "", downloadUrl: "", size: "" };
-const fields = (v: AppVersion): Draft => ({ version: v.version, releaseType: v.releaseType, segmentIds: v.segmentIds, releaseNotes: v.releaseNotes, downloadUrl: v.downloadUrl ?? "", size: v.downloadSizeBytes === null ? "" : String(v.downloadSizeBytes) });
+type Draft = { version: string; releaseType: AppVersion["releaseType"]; segmentIds: string[]; releaseNotes: string; downloadUrl: string; size: string; versionCode: string; sha256: string };
+const empty: Draft = { version: "", releaseType: "gray", segmentIds: [], releaseNotes: "", downloadUrl: "", size: "", versionCode: "", sha256: "" };
+const fields = (v: AppVersion): Draft => ({ version: v.version, releaseType: v.releaseType, segmentIds: v.segmentIds, releaseNotes: v.releaseNotes, downloadUrl: v.packageInfo?.downloadUrl ?? "", size: v.packageInfo ? String(v.packageInfo.downloadSizeBytes) : "", versionCode: String(v.versionCode), sha256: v.packageInfo?.sha256 ?? "" });
 type Session = { saved: AppVersion | null; draft: Draft; conflict: boolean; latest: AppVersion | null };
 const dirty = (s: Session) => JSON.stringify(s.draft) !== JSON.stringify(s.saved ? fields(s.saved) : empty);
 
@@ -46,9 +46,9 @@ function Editor({ initial, id }: { initial: AppVersion | null; id: string }) {
     setError(null); setSession((s) => s, true);
     try {
       const d = session.draft;
-      const parsed = createVersionSchema.safeParse({ version: d.version.trim(), releaseType: d.releaseType, segmentIds: d.releaseType === "gray" ? d.segmentIds : [], releaseNotes: d.releaseNotes, downloadUrl: d.downloadUrl.trim() || null, downloadSizeBytes: d.size.trim() ? Number(d.size) : null });
+      const parsed = createVersionSchema.safeParse({ version: d.version.trim(), releaseType: d.releaseType, segmentIds: d.releaseType === "gray" ? d.segmentIds : [], releaseNotes: d.releaseNotes, versionCode: Number(d.versionCode), packageInfo: [d.downloadUrl, d.size, d.sha256].every((v) => !v.trim()) ? null : { downloadUrl: d.downloadUrl.trim(), downloadSizeBytes: Number(d.size), sha256: d.sha256.trim() } });
       if (!parsed.success) {
-        setTab(parsed.error.issues.some((issue) => issue.path[0] !== "downloadUrl" && issue.path[0] !== "downloadSizeBytes") ? "basic" : "package");
+        setTab(parsed.error.issues.some((issue) => issue.path[0] !== "packageInfo") ? "basic" : "package");
         throw new Error(parsed.error.issues.map((i) => i.message).join("；"));
       }
       const { version, ...input } = parsed.data;
@@ -91,7 +91,7 @@ function Editor({ initial, id }: { initial: AppVersion | null; id: string }) {
     {latest.isError && <div className="space-y-2"><ErrorNotice error={latest.error} /><Button type="button" size="sm" variant="outline" onClick={async () => { await client.invalidateQueries({ queryKey: resourceKey(app.id, "versions") }); latest.reset(); }}>刷新后重新操作</Button></div>}
     {session.conflict && <div role="alert" className="space-y-3 rounded-lg border p-4">
       <p>版本冲突，编辑内容已保留。请核对服务器内容后重试。</p>
-      {session.latest && <><details><summary className="cursor-pointer">查看服务器最新内容</summary><p className="my-2 break-all">发布类型：{session.latest.releaseType === "full" ? "全量" : "灰度"}，下载地址：{session.latest.downloadUrl ?? "无"}，大小：{session.latest.downloadSizeBytes ?? "未设置"}</p><MarkdownPreview content={session.latest.releaseNotes} /></details>
+      {session.latest && <><details><summary className="cursor-pointer">查看服务器最新内容</summary><p className="my-2 break-all">versionCode：{session.latest.versionCode}，发布类型：{session.latest.releaseType === "full" ? "全量" : "灰度"}，下载地址：{session.latest.packageInfo?.downloadUrl ?? "无"}，大小：{session.latest.packageInfo?.downloadSizeBytes ?? "未设置"}</p>{session.latest.packageInfo && <p className="break-all">SHA-256：{session.latest.packageInfo.sha256}</p>}<MarkdownPreview content={session.latest.releaseNotes} /></details>
         <div className="flex flex-wrap gap-2"><Button type="button" variant="outline" onClick={() => { setSession((s) => ({ ...s, saved: s.latest, conflict: false, latest: null })); setError(null); }}>保留我的编辑，采用最新修订号</Button><Button type="button" variant="outline" onClick={() => { const saved = session.latest!; setSession({ saved, draft: fields(saved), conflict: false, latest: null }); setError(null); }}>加载服务器内容</Button></div></>}
       {!session.latest && <Button type="button" variant="outline" onClick={() => void api.get(id).then((latest) => setSession((s) => ({ ...s, latest }))).catch(setError)}>重新获取服务器内容</Button>}
     </div>}
@@ -104,6 +104,7 @@ function Editor({ initial, id }: { initial: AppVersion | null; id: string }) {
         <Tabs.Content value="basic" className="space-y-6">
           <fieldset disabled={busy} className="min-w-0 space-y-6">
             <div className="space-y-2"><Label htmlFor="version-number">版本号</Label><Input id="version-number" className="max-w-sm" placeholder="1.4.1" value={session.draft.version} readOnly={Boolean(session.saved)} required onChange={(e) => change("version", e.target.value)} /></div>
+            <div className="max-w-sm space-y-2"><Label htmlFor="version-code">versionCode</Label><Input id="version-code" type="number" min="1" max="2100000000" step="1" value={session.draft.versionCode} onChange={(e) => change("versionCode", e.target.value)} /></div>
             <MarkdownEditor id="version-notes" label="更新说明（Markdown）" value={session.draft.releaseNotes} onChange={(value) => change("releaseNotes", value)} disabled={busy}
               onUploadingChange={(active) => { setUploading(active); setSession((s) => s, active); }} placeholder="输入更新说明，支持 Markdown…" />
             <hr className="border-t" />
@@ -115,8 +116,9 @@ function Editor({ initial, id }: { initial: AppVersion | null; id: string }) {
         </Tabs.Content>
         <Tabs.Content value="package">
           <fieldset disabled={busy} className="max-w-2xl space-y-6">
-            <div className="space-y-2"><Label htmlFor="version-url">下载地址（可选）</Label><Input id="version-url" type="url" maxLength={2048} placeholder="https://example.com/app.apk" value={session.draft.downloadUrl} onChange={(e) => change("downloadUrl", e.target.value)} /></div>
-            <div className="max-w-sm space-y-2"><Label htmlFor="version-size">文件大小（字节，可选）</Label><Input id="version-size" type="number" min="1" step="1" max={Number.MAX_SAFE_INTEGER} value={session.draft.size} onChange={(e) => change("size", e.target.value)} /></div>
+            <div className="space-y-2"><Label htmlFor="version-url">下载地址</Label><Input id="version-url" type="url" maxLength={2048} placeholder="https://example.com/app.apk" value={session.draft.downloadUrl} onChange={(e) => change("downloadUrl", e.target.value)} /></div>
+            <div className="max-w-sm space-y-2"><Label htmlFor="version-size">文件大小（字节）</Label><Input id="version-size" type="number" min="1" step="1" max={Number.MAX_SAFE_INTEGER} value={session.draft.size} onChange={(e) => change("size", e.target.value)} /></div>
+            <div className="space-y-2"><Label htmlFor="package-sha256">SHA-256</Label><Input id="package-sha256" maxLength={64} value={session.draft.sha256} onChange={(e) => change("sha256", e.target.value)} /></div>
           </fieldset>
         </Tabs.Content>
       </Tabs.Root>

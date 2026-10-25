@@ -260,7 +260,7 @@ ACCESS_BYPASS_LOCAL
 
 ## 8. 配置共享人群与白名单
 
-部署前应用 D1 迁移，包括重写后的 `0007_app_versions.sql`。该迁移首次引入 Segment、版本（含 Segment ID 数组）和最新版本设置表，不兼容之前本地联调使用的旧 0007。
+部署前应用 D1 迁移，包括 `0007_app_versions.sql` 和后续 `0008_version_package_info.sql`。该迁移首次引入 Segment、版本（含 Segment ID 数组）和最新版本设置表，不兼容之前本地联调使用的旧 0007。
 
 部署后登录 `/admin/segments`，手工创建人群并录入三类名单，再到 iClass 白名单管理页选择 Segment 并保存。白名单的 `{revision,segmentIds}` 配置存入 KV，不创建 D1 配置表；公开名单只包含姓名和学号。版本灰度在对应 App 的版本管理页关联人群。
 
@@ -426,7 +426,7 @@ npx wrangler rollback --name api-platform
 
 ### 公开接口返回 503
 
-检查 D1、KV 绑定和 0007 迁移是否正确，以及当前引用 Segment 的快照是否可读。新快照跨地区暂时不可读时可稍后重试，不使用旧名单或 seed 回退。
+检查 D1、KV 绑定和 0007、0008 迁移是否正确，以及当前引用 Segment 的快照是否可读。新快照跨地区暂时不可读时可稍后重试，不使用旧名单或 seed 回退。
 
 ### 部署后仍访问旧数据
 

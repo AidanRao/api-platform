@@ -6,7 +6,7 @@ const migrations = await readD1Migrations("./migrations");
 export default defineConfig({
   test: {
     include: ["test/**/*.spec.ts"],
-    provide: { segmentMigration: migrations.find((m) => m.name === "0007_app_versions.sql")!.queries },
+    provide: { segmentMigration: migrations.filter((m) => ["0007_app_versions.sql", "0008_version_package_info.sql"].includes(m.name)).flatMap((m) => m.queries) },
   },
   plugins: [
     cloudflareTest({

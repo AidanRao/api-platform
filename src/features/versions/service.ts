@@ -2,7 +2,7 @@ import type { z } from "zod";
 import { ApiError } from "../../http/errors";
 import { VersionRepository } from "./repository";
 import { matchesMembers, type SegmentReader } from "../segments/schema";
-import { effectiveVersion, type CreateVersion, type patchVersionSchema } from "./schema";
+import type { CreateVersion, patchVersionSchema } from "./schema";
 
 const conflict = () => new ApiError("记录或分配设置已变化，请刷新核对后重试", 409);
 export class VersionService {
@@ -51,18 +51,24 @@ export class VersionService {
   }
   async resolve(userId?: string) {
     const settings = await this.repo.settings();
-    let selected = settings.latestVersion;
+    const full = settings.latestVersion ? await this.repo.get(settings.latestVersion) : null;
+    let selected: { version: string; versionCode: number } | null = full;
+    if (settings.latestVersion && !selected) throw new ApiError("版本配置正在更新，请稍后重试", 503);
     if (userId !== undefined) {
       const targets = await this.repo.targets();
       const segments = await this.segments.load(targets.flatMap((t) => t.segmentIds));
       const matched = new Set(segments.filter((s) => matchesMembers(s.members, { sso_id: userId })).map((s) => s.id));
-      for (const target of targets) if (target.segmentIds.some((id) => matched.has(id))) selected = effectiveVersion(selected, target.version);
+      for (const target of targets) {
+        if (target.segmentIds.some((id) => matched.has(id)) && (!selected || target.versionCode > selected.versionCode)) {
+          selected = target;
+        }
+      }
     }
     if (!selected) return { version: null };
-    const value = await this.repo.get(selected);
+    const value = await this.repo.get(selected.version);
     // A concurrent removal followed by deletion may invalidate an older read snapshot.
     if (!value) throw new ApiError("版本配置正在更新，请稍后重试", 503);
-    const { version, releaseNotes, downloadUrl, downloadSizeBytes } = value;
-    return { version: { version, releaseNotes, downloadUrl, downloadSizeBytes } };
+    const { version, versionCode, releaseNotes, packageInfo } = value;
+    return { version: { version, versionCode, releaseNotes, packageInfo } };
   }
 }

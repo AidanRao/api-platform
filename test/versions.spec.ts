@@ -2,14 +2,16 @@ import { env } from "cloudflare:workers";
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { clean, migrate, read, request, segment } from "./segment-fixture";
 import { emptyMembers, type Segment } from "../src/features/segments/schema";
-import { compareVersions, versionNumberSchema, type AppVersion, type Settings } from "../src/features/versions/schema";
+import { versionNumberSchema, type AppVersion, type Settings } from "../src/features/versions/schema";
 import { VersionRepository } from "../src/features/versions/repository";
 import { PUBLIC_ACCESS_POLICY_PATH, ADMIN_ACCESS_POLICY_PATH } from "../src/domains/buaa-classhopper/access-policy/routes";
 import type { AccessPolicy } from "../src/domains/buaa-classhopper/access-policy/schema";
 
 const base = (app = "buaa-classhopper") => `/api/admin/${app}/versions`;
 const pub = (app = "buaa-classhopper") => `/api/${app}/versions/latest`;
-const create = (version = "1.4.1", app?: string, extra = {}) => request(base(app), "POST", { version, ...extra }).then(read<AppVersion>);
+const pkg = { downloadUrl: "https://cdn.test/app.apk", downloadSizeBytes: 100, sha256: "a".repeat(64) };
+const code = (v: string) => v.split(".").reduce((n, part) => n * 1000 + Number(part), 0);
+const create = (version = "1.4.1", app?: string, extra = {}) => request(base(app), "POST", { version, versionCode: code(version), ...extra }).then(read<AppVersion>);
 const get = (version = "1.4.1", app?: string) => request(`${base(app)}/${version}`).then(read<AppVersion>);
 const promote = async (version: string) => request(`${base()}/${version}`, "PATCH", { revision: (await get(version)).revision, releaseType: "full" }).then(read<AppVersion>);
 const latest = async (version: string | null, app?: string) => {
@@ -17,7 +19,7 @@ const latest = async (version: string | null, app?: string) => {
   return request(`${base(app)}/latest`, "PUT", { revision: state.revision, version }).then(read<Settings>);
 };
 const associate = async (version: string, ids: string[], app?: string) => request(`${base(app)}/${version}/segments`, "PUT", { revision: (await get(version, app)).revision, segmentIds: ids }).then(read<AppVersion>);
-const resolve = (app = "buaa-classhopper", authenticated = false) => request(pub(app), "GET", undefined, authenticated ? { Authorization: `Bearer valid-${app}` } : {}).then(read<{ version: { version: string; releaseNotes: string } | null }>);
+const resolve = (app = "buaa-classhopper", authenticated = false) => request(pub(app), "GET", undefined, authenticated ? { Authorization: `Bearer valid-${app}` } : {}).then(read<{ version: { version: string; versionCode: number; releaseNotes: string; packageInfo: typeof pkg | null } | null }>);
 beforeAll(migrate); beforeEach(clean);
 
 describe("segment-backed application versions", () => {
@@ -26,22 +28,48 @@ describe("segment-backed application versions", () => {
     const created = await create("1.4.1", undefined, { releaseNotes: "初始说明", segmentIds: [a.id, a.id] });
     expect(created).toMatchObject({ releaseType: "gray", segmentIds: [a.id], revision: 1 });
     expect((await resolve(undefined, true)).version?.version).toBe("1.4.1");
-    const updated = await request(`${base()}/1.4.1`, "PATCH", { revision: 1, releaseNotes: "新的说明", downloadUrl: "https://cdn.test/app.apk", segmentIds: [b.id] }).then(read<AppVersion>);
-    expect(updated).toMatchObject({ releaseNotes: "新的说明", downloadUrl: "https://cdn.test/app.apk", segmentIds: [b.id], revision: 2 });
+    const updated = await request(`${base()}/1.4.1`, "PATCH", { revision: 1, releaseNotes: "新的说明", packageInfo: pkg, segmentIds: [b.id] }).then(read<AppVersion>);
+    expect(updated).toMatchObject({ releaseNotes: "新的说明", packageInfo: pkg, segmentIds: [b.id], revision: 2 });
     expect(await resolve(undefined, true)).toEqual({ version: null });
-    const edited = await request(`${base()}/1.4.1`, "PATCH", { revision: 2, downloadSizeBytes: 100 }).then(read<AppVersion>);
+    const edited = await request(`${base()}/1.4.1`, "PATCH", { revision: 2, packageInfo: { ...pkg, downloadSizeBytes: 200 } }).then(read<AppVersion>);
     expect(edited.segmentIds).toEqual([b.id]);
     const cleared = await request(`${base()}/1.4.1`, "PATCH", { revision: 3, segmentIds: [] }).then(read<AppVersion>);
     expect(cleared).toMatchObject({ segmentIds: [], revision: 4 });
   });
+  it("stores package JSON, replaces it atomically, clears it and validates actual numeric version codes", async () => {
+    const saved = await create("9.0.0", undefined, { versionCode: 2, packageInfo: { ...pkg, sha256: "A".repeat(64) } });
+    expect(saved.packageInfo).toEqual(pkg);
+    const row = await env.API_PLATFORM_DB.prepare("SELECT version_code,package_info FROM app_versions WHERE version='9.0.0'").first<{ version_code: number; package_info: string }>();
+    expect(row?.version_code).toBe(2); expect(JSON.parse(row!.package_info)).toEqual(pkg);
+    const columns = await env.API_PLATFORM_DB.prepare("PRAGMA table_info(app_versions)").all<{ name: string }>();
+    expect(columns.results.map((c) => c.name)).not.toContain("download_url");
+    for (const value of [0, -1, 1.5, "3", null, 2100000001]) {
+      expect((await request(base(), "POST", { version: "3.0.0", versionCode: value })).status).toBe(400);
+    }
+    expect((await request(base(), "POST", { version: "3.0.0" })).status).toBe(400);
+    for (const packageInfo of [{}, { downloadUrl: pkg.downloadUrl }, { ...pkg, sha256: "bad" }, { ...pkg, downloadSizeBytes: 0 }, { ...pkg, versionCode: 3 }]) {
+      expect((await request(`${base()}/9.0.0`, "PATCH", { revision: 1, packageInfo })).status).toBe(400);
+    }
+    const replacement = { ...pkg, downloadSizeBytes: 200 };
+    expect((await request(`${base()}/9.0.0`, "PATCH", { revision: 1, packageInfo: replacement }).then(read<AppVersion>)).packageInfo).toEqual(replacement);
+    expect((await request(`${base()}/9.0.0`, "PATCH", { revision: 1, packageInfo: null })).status).toBe(409);
+    expect((await request(`${base()}/9.0.0`, "PATCH", { revision: 2, packageInfo: null }).then(read<AppVersion>)).packageInfo).toBeNull();
+  });
+  it("selects full and gray releases by versionCode rather than display version", async () => {
+    await create("9.0.0", undefined, { versionCode: 2, releaseType: "full" }); await latest("9.0.0");
+    const s = await segment("内测", { sso_id: ["user-1"] });
+    await create("1.0.0", undefined, { versionCode: 3, segmentIds: [s.id] });
+    expect((await resolve()).version).toMatchObject({ version: "9.0.0", versionCode: 2 });
+    expect((await resolve(undefined, true)).version).toMatchObject({ version: "1.0.0", versionCode: 3 });
+  });
   it("leaves the entire version unchanged if combined segment validation fails", async () => {
     const s = await segment(), missing = "SEGM-20261024-AAAAAAAAAA";
-    expect((await request(base(), "POST", { version: "1.4.1", releaseNotes: "不能保存", segmentIds: [missing] })).status).toBe(409);
+    expect((await request(base(), "POST", { versionCode: 1, version: "1.4.1", releaseNotes: "不能保存", segmentIds: [missing] })).status).toBe(409);
     expect((await request(`${base()}/1.4.1`)).status).toBe(404);
     const created = await create("1.4.1", undefined, { releaseNotes: "原始说明", segmentIds: [s.id] });
     expect((await request(`${base()}/1.4.1`, "PATCH", { revision: 1, releaseNotes: "不能保存", segmentIds: [s.id, missing] })).status).toBe(409);
     expect(await get()).toEqual(created);
-    expect((await request(base(), "POST", { version: "1.5.0", releaseType: "full", segmentIds: [s.id] })).status).toBe(400);
+    expect((await request(base(), "POST", { versionCode: 1, version: "1.5.0", releaseType: "full", segmentIds: [s.id] })).status).toBe(400);
     const full = await promote("1.4.1");
     expect((await request(`${base()}/1.4.1`, "PATCH", { revision: full.revision, releaseNotes: "不能保存", segmentIds: [s.id] })).status).toBe(409);
     expect(await get()).toEqual(full);
@@ -53,7 +81,7 @@ describe("segment-backed application versions", () => {
   it("serializes creating a version with references against segment deletion", async () => {
     const s = await segment();
     const [created, removed] = await Promise.all([
-      request(base(), "POST", { version: "1.4.1", segmentIds: [s.id] }),
+      request(base(), "POST", { versionCode: 1, version: "1.4.1", segmentIds: [s.id] }),
       request(`/api/admin/segments/${s.id}`, "DELETE", { revision: 1 }),
     ]);
     const stored = await new VersionRepository(env.API_PLATFORM_DB, "buaa-classhopper").get("1.4.1");
@@ -82,7 +110,7 @@ describe("segment-backed application versions", () => {
     expect((await request(`${base()}/1.5.0`, "PATCH", { revision: 1, releaseType: "gray" }).then(read<AppVersion>)).releaseType).toBe("gray");
     expect((await associate("1.5.0", [s.id])).segmentIds).toEqual([s.id]);
     for (const releaseType of ["stable", "", null]) {
-      expect((await request(base(), "POST", { version: "2.0.0", releaseType })).status).toBe(400);
+      expect((await request(base(), "POST", { versionCode: 1, version: "2.0.0", releaseType })).status).toBe(400);
       expect((await request(`${base()}/1.4.1`, "PATCH", { revision: 1, releaseType })).status).toBe(400);
     }
   });
@@ -164,16 +192,15 @@ describe("segment-backed application versions", () => {
   });
   it("validates canonical version numbers, numeric ordering and optimistic metadata edits", async () => {
     for (const s of ["01.0.0", "1.0", "1.0.0-beta", "9007199254740992.0.0"]) expect(versionNumberSchema.safeParse(s).success).toBe(false);
-    expect(compareVersions("1.10.0", "1.9.99")).toBeGreaterThan(0);
-    await create("1.9.99"); await create("1.10.0", undefined, { releaseType: "full" });
-    const page = await request(`${base()}?pageSize=1`).then(read<{ items: AppVersion[]; total: number }>); expect(page.items[0]?.version).toBe("1.10.0"); expect(page.total).toBe(2);
-    expect((await request(base(), "POST", { version: "1.10.0" })).status).toBe(409);
+    await create("1.9.99", undefined, { versionCode: 100 }); await create("1.10.0", undefined, { versionCode: 99, releaseType: "full" });
+    const page = await request(`${base()}?pageSize=1`).then(read<{ items: AppVersion[]; total: number }>); expect(page.items[0]?.version).toBe("1.9.99"); expect(page.total).toBe(2);
+    expect((await request(base(), "POST", { versionCode: 1, version: "1.10.0" })).status).toBe(409);
     await latest("1.10.0");
-    await request(`${base()}/1.10.0`, "PATCH", { revision: 1, releaseNotes: "**修复**", downloadUrl: "https://cdn.test/a.apk", downloadSizeBytes: 100 }).then(read<AppVersion>);
+    await request(`${base()}/1.10.0`, "PATCH", { revision: 1, releaseNotes: "**修复**", packageInfo: { ...pkg, downloadUrl: "https://cdn.test/a.apk", downloadSizeBytes: 200 } }).then(read<AppVersion>);
     expect((await resolve()).version?.releaseNotes).toBe("**修复**");
     expect((await request(`${base()}/1.10.0`, "PATCH", { revision: 1, releaseNotes: "stale" })).status).toBe(409);
     expect((await request(`${base()}/1.10.0`, "PATCH", { revision: 2, version: "2.0.0" })).status).toBe(400);
-    expect((await request(base(), "POST", { version: "3.0.0", downloadUrl: "javascript:alert(1)" })).status).toBe(400);
+    expect((await request(base(), "POST", { versionCode: 1, version: "3.0.0", packageInfo: { ...pkg, downloadUrl: "javascript:alert(1)" } })).status).toBe(400);
   });
   it("uses only SSO IDs and selects the highest version across all matching segments", async () => {
     for (const v of ["1.4.1", "1.5.0", "1.6.0", "1.7.0"]) await create(v);
@@ -240,6 +267,6 @@ describe("segment-backed application versions", () => {
     for (const token of ["invalid", "valid-second_app"]) expect((await request(pub(), "GET", undefined, { Authorization: `Bearer ${token}` })).status).toBe(401);
     expect((await request(pub(), "GET", undefined, { Authorization: "Bearer unavailable" })).status).toBe(503);
     expect((await request(`${pub()}?sso_id=user-1`)).status).toBe(400);
-    expect((await request(`${base()}/rollouts`, "PUT", { version: "1.4.1", ssoIds: ["user-1"], revision: 1 })).status).not.toBe(200);
+    expect((await request(`${base()}/rollouts`, "PUT", { versionCode: 1, version: "1.4.1", ssoIds: ["user-1"], revision: 1 })).status).not.toBe(200);
   });
 });

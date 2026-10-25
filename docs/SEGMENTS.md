@@ -73,10 +73,10 @@ Android 客户端继续读取 `schemaVersion`、`revision`、`studentIds`、`nam
 
 ## 版本消费者
 
-版本元数据仍归各 App。版本分为全量和灰度，默认灰度；仅灰度版本通过 `app_versions.segment_ids` JSON 数组关联多个 Segment，同一 Segment 可以关联多个灰度版本和 App。灰度转为全量时自动解除引用。版本查询只用已验证 JWT `sub` 作为 `sso_id`，不以姓名或学号匹配，也不接受客户端自行指定用户 ID。全部命中的灰度版本与手动指定的最新全量版本取最高者。完整契约见 [版本管理](./VERSIONS.md)。
+版本元数据仍归各 App。版本分为全量和灰度，默认灰度；仅灰度版本通过 `app_versions.segment_ids` JSON 数组关联多个 Segment，同一 Segment 可以关联多个灰度版本和 App。灰度转为全量时自动解除引用。版本查询只用已验证 JWT `sub` 作为 `sso_id`，不以姓名或学号匹配，也不接受客户端自行指定用户 ID。全部命中的灰度版本与手动指定的最新全量版本按数字 versionCode 取最高者。完整契约见 [版本管理](./VERSIONS.md)。
 
 ## 首次切换
 
-直接使用重写后的 `0007_app_versions.sql` 创建新结构；生产尚未应用该迁移。不增加旧结构兼容、名单导入或运行时回退。上线后手工创建 Segment 并配置消费者引用，旧 KV key 不再读取，也不自动删除。
+直接使用重写后的 `0007_app_versions.sql` 创建新结构；0007 已上线；安装包对象与数字 versionCode 使用后续 0008 迁移。不增加旧结构兼容、名单导入或运行时回退。上线后手工创建 Segment 并配置消费者引用，旧 KV key 不再读取，也不自动删除。
 
 此前本地验证库已经应用过旧 0007，因此本次联调使用独立临时目录，通过 `wrangler d1 migrations apply --local --persist-to <目录>` 创建干净数据库，并让 `wrangler dev --local --persist-to <同一目录>` 使用它，不重置现有本地库。
