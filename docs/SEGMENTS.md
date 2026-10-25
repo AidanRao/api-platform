@@ -64,12 +64,12 @@ KV 引用没有数据库外键保护。仅被白名单引用的人群可被删�
 公开路径保留为 `GET /api/buaa-classhopper/v1/iclass/access-policy`，保留最低 `X-App-Version:1.5.1` 的检查，以及成功响应的 60 秒缓存。返回：
 
 ```json
-{"code":1,"msg":"获取成功","data":{"revision":"<opaque hash>","members":{"student_name":[],"student_id":[]}}}
+{"code":1,"msg":"获取成功","data":{"schemaVersion":1,"revision":"<opaque hash>","studentIds":[],"names":[]}}
 ```
 
-仅合并返回姓名和学号，不返回 `sso_id` 字段；后台白名单合并预览也只显示这两类。客户端按姓名或学号判断命中。revision 是配置修订号与有序的 `[segmentId,segmentRevision]` 列表序列化后的 SHA-256；客户端只比较是否相同，不解析日期或数字。人群编辑也会改变公开 revision，无需重新保存白名单引用。
+公开接口保持原有响应结构：`schemaVersion` 固定为 1，Segment 的 `student_id` 合并去重后返回 `studentIds`，`student_name` 合并去重后返回 `names`，不返回 `members`、`sso_id` 或 Segment ID。后台白名单合并预览也只显示姓名和学号。客户端按姓名或学号判断命中。revision 是配置修订号与有序的 `[segmentId,segmentRevision]` 列表序列化后的 SHA-256；客户端只比较是否相同，不解析日期或数字。人群编辑也会改变公开 revision，无需重新保存白名单引用。
 
-Android 客户端须改为读取 `members.student_name` 和 `members.student_id`，使用姓名、学号参与判断，并适配不透明 revision。新协议没有旧的 schemaVersion、studentIds、names 字段；本仓库不修改 Android。没有配置时返回空名单，所引用人群不可读时返回 503。
+Android 客户端继续读取 `schemaVersion`、`revision`、`studentIds`、`names`，无需改为 Segment 的字段结构。内部 Segment 配置与管理 API 不受公开响应映射影响。本仓库不修改 Android。没有配置时返回空名单，所引用人群不可读时返回 503。
 
 ## 版本消费者
 

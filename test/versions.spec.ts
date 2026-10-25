@@ -159,7 +159,7 @@ describe("segment-backed application versions", () => {
     expect((await resolve(undefined, true)).version?.version).toBe("1.4.1");
     await request(`/api/admin/segments/${s.id}`, "PUT", { revision: 1, name: s.name, members: { ...emptyMembers(), student_id: ["02"] } }).then(read<Segment>);
     const after = await request(PUBLIC_ACCESS_POLICY_PATH, "GET", undefined, { "X-App-Version": "1.5.1" }).then(read<AccessPolicy>);
-    expect(after.members.student_id).toEqual(["02"]); expect(after.revision).not.toBe(before.revision);
+    expect(after.studentIds).toEqual(["02"]); expect(after.revision).not.toBe(before.revision);
     expect(await resolve(undefined, true)).toEqual({ version: null }); expect((await get()).segmentIds).toEqual([s.id]);
   });
   it("validates canonical version numbers, numeric ordering and optimistic metadata edits", async () => {
