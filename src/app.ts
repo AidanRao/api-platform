@@ -12,6 +12,7 @@ import {
 import { serveAdminAsset } from "./http/admin-assets";
 import { createPlatformAdsRoutes } from "./features/ads/routes";
 import { createMediaRoutes } from "./features/media/routes";
+import { createSegmentRoutes } from "./features/segments/routes";
 import { methodNotAllowed, successResponse, errorResponse } from "./http/response";
 import type { AppEnv } from "./http/types";
 import type { SsoVerifier } from "./http/sso-auth";
@@ -31,6 +32,7 @@ export function createApp(
   application.all("/api/admin/apps", () => methodNotAllowed("GET"));
   application.route("/api/admin/media", createMediaRoutes(now));
   application.route("/api/admin/ads", createPlatformAdsRoutes(now));
+  application.route("/api/admin/segments", createSegmentRoutes(now));
   mountAppRoutes(application, apps, now, verifySso);
 
   application.notFound(() =>

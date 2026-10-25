@@ -31,23 +31,26 @@ export function useAdminPageTitle(title: string) {
 }
 
 const platformSections = [
+  { id: "segments", label: "人群管理" },
   { id: "ads/campaigns", label: "广告活动" },
   { id: "ads/creatives", label: "共享素材" },
 ];
 const editorTitles: Record<string, { create: string; edit: string }> = {
+  segments: { create: "新建人群", edit: "编辑人群" },
   "ads/campaigns": { create: "新建活动", edit: "编辑活动" },
   "ads/creatives": { create: "新建素材", edit: "编辑素材" },
   "ads/slots": { create: "新建广告位", edit: "编辑广告位" },
   "ads/placements": { create: "新建投放", edit: "编辑投放" },
   announcements: { create: "新增草稿", edit: "编辑公告" },
+  versions: { create: "新建版本", edit: "编辑版本" },
   "api-tokens": { create: "创建 Token", edit: "编辑 Token" },
 };
 
-export function AdminHeader({ app, platformAds }: { app?: AppDefinition; platformAds: boolean }) {
+export function AdminHeader({ app, platformScope }: { app?: AppDefinition; platformScope: "ads" | "segments" | null }) {
   const { pathname } = useLocation();
   const context = useContext(HeaderContext);
   const base = app ? `/admin/${encodeURIComponent(app.id)}` : "/admin";
-  const sections = app ? sectionsForApp(app) : platformAds ? platformSections : [];
+  const sections = app ? sectionsForApp(app) : platformScope ? platformSections : [];
   const section = sections.find(({ id }) => pathname === `${base}/${id}` || pathname.startsWith(`${base}/${id}/`));
   const listPath = section ? `${base}/${section.id}` : null;
   const leaf = listPath ? pathname.slice(listPath.length).replace(/^\//, "") : "";
@@ -56,7 +59,7 @@ export function AdminHeader({ app, platformAds }: { app?: AppDefinition; platfor
     ? context?.pageTitle?.pathname === pathname ? context.pageTitle.title : leaf === "new" ? editor.create : editor.edit
     : section?.label;
   const crumbs: { label: string; to?: string }[] = [
-    { label: platformAds ? "平台广告" : "应用管理", to: "/admin/" },
+    { label: platformScope === "ads" ? "平台广告" : platformScope === "segments" ? "平台管理" : "应用管理", to: "/admin/" },
     ...(app ? [{ label: app.name, to: appLandingPath(app) }] : []),
     ...(section ? [{ label: section.label, ...(editor ? { to: listPath! } : {}) }] : []),
     ...(editor && title ? [{ label: title }] : []),

@@ -1,0 +1,7 @@
+.segment-name-edit { opacity: 1; }
+
+@media (hover: hover) and (pointer: fine) {
+  .segment-name-edit { opacity: 0; }
+  .segment-name-heading:hover .segment-name-edit,
+  .segment-name-heading:focus-within .segment-name-edit { opacity: 1; }
+}

@@ -15,11 +15,12 @@ import { AdminHeader, AdminHeaderProvider } from "./platform/AdminHeader";
 export function PlatformLayout() {
   const apps = useQuery(appsQuery);
   const platformAds = useMatch("/admin/ads/*");
+  const platformSegments = useMatch("/admin/segments/*");
   const match = useMatch("/admin/:appId/*");
   const app = apps.data?.items.find((item) => item.id === match?.params.appId);
-  useEffect(() => { document.title = app ? `${app.name} · 应用管理` : platformAds ? "API Platform · 平台广告" : "API Platform · 应用管理"; }, [app, platformAds]);
+  useEffect(() => { document.title = app ? `${app.name} / 应用管理` : platformAds ? "API Platform / 平台广告" : platformSegments ? "API Platform / 人群管理" : "API Platform / 应用管理"; }, [app, platformAds, platformSegments]);
   return <ToastProvider><DraftProvider><TooltipProvider><SidebarProvider><AdminHeaderProvider>
-    <Navigation /><SidebarInset><AdminHeader app={app} platformAds={!!platformAds} />
+    <Navigation /><SidebarInset><AdminHeader app={app} platformScope={platformAds ? "ads" : platformSegments ? "segments" : null} />
     <main data-page-content className="mx-auto w-full max-w-7xl min-w-0 space-y-6 p-4 pb-[calc(1rem+var(--editor-actions-height,0px))] md:p-8 md:pb-[calc(2rem+var(--editor-actions-height,0px))]">
       {apps.isPending ? <Loading /> : apps.isError ? <><ErrorNotice error={apps.error} /><Button onClick={() => void apps.refetch()}>重新加载应用列表</Button></> : <Outlet />}
     </main></SidebarInset><DraftNavigationGuard />
@@ -40,7 +41,7 @@ function Navigation() {
     }}><SelectTrigger className="w-full" aria-label="选择应用"><SelectValue placeholder="选择应用" /></SelectTrigger>
       <SelectContent>{data?.items.map((item) => <SelectItem key={item.id} value={item.id}>{item.name}</SelectItem>)}</SelectContent>
     </Select>
-  </SidebarHeader><SidebarContent><SidebarGroup><SidebarGroupLabel>平台广告</SidebarGroupLabel><SidebarMenu>{[{ path: "campaigns", label: "广告活动" }, { path: "creatives", label: "共享素材" }].map((item) => <SidebarMenuItem key={item.path}><SidebarMenuButton asChild isActive={location.pathname.startsWith(`/admin/ads/${item.path}`)}><NavLink to={`/admin/ads/${item.path}`} onClick={() => setOpenMobile(false)}>{item.label}</NavLink></SidebarMenuButton></SidebarMenuItem>)}</SidebarMenu></SidebarGroup><SidebarGroup><SidebarGroupLabel>管理功能</SidebarGroupLabel><SidebarMenu>
+  </SidebarHeader><SidebarContent><SidebarGroup><SidebarGroupLabel>平台管理</SidebarGroupLabel><SidebarMenu><SidebarMenuItem><SidebarMenuButton asChild isActive={location.pathname.startsWith("/admin/segments")}><NavLink to="/admin/segments" onClick={() => setOpenMobile(false)}>人群管理</NavLink></SidebarMenuButton></SidebarMenuItem></SidebarMenu></SidebarGroup><SidebarGroup><SidebarGroupLabel>平台广告</SidebarGroupLabel><SidebarMenu>{[{ path: "campaigns", label: "广告活动" }, { path: "creatives", label: "共享素材" }].map((item) => <SidebarMenuItem key={item.path}><SidebarMenuButton asChild isActive={location.pathname.startsWith(`/admin/ads/${item.path}`)}><NavLink to={`/admin/ads/${item.path}`} onClick={() => setOpenMobile(false)}>{item.label}</NavLink></SidebarMenuButton></SidebarMenuItem>)}</SidebarMenu></SidebarGroup><SidebarGroup><SidebarGroupLabel>管理功能</SidebarGroupLabel><SidebarMenu>
     {app && sectionsForApp(app).map((section) => <SidebarMenuItem key={section.id}>
       <SidebarMenuButton asChild isActive={location.pathname.startsWith(`/admin/${app.id}/${section.id}`)}><NavLink to={`/admin/${app.id}/${section.id}`} onClick={() => setOpenMobile(false)}>{section.label}</NavLink></SidebarMenuButton>
     </SidebarMenuItem>)}

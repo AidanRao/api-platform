@@ -20,9 +20,6 @@
     "deploy": "npm run deploy:production",
     "deploy:production:dry": "npm run build:production && wrangler deploy --config web/dist/api_platform/wrangler.json --dry-run",
     "deploy:production": "npm run build:production && wrangler deploy --config web/dist/api_platform/wrangler.json",
-    "seed:local": "wrangler kv key put --binding=API_PLATFORM_KV buaa-classhopper:iclass:access-policy:v1 --path=./seed/access-policy.json",
-    "seed:remote": "npm run seed:production",
-    "seed:production": "wrangler kv key put --binding=API_PLATFORM_KV buaa-classhopper:iclass:access-policy:v1 --path=./seed/access-policy.json --remote --env production",
     "db:migrate:local": "wrangler d1 migrations apply API_PLATFORM_DB --local",
     "db:migrate:production": "wrangler d1 migrations apply API_PLATFORM_DB --remote --env production"
   },

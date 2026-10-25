@@ -14,11 +14,32 @@ const catalog = { groups: [{
   code: "reservations", name: "签到预约", permissions: [
     { code: "reservations:read", name: "读取签到预约详情" },
   ],
+}, {
+  code: "versions", name: "版本管理", permissions: [
+    { code: "versions:create", name: "新建灰度版本" },
+  ],
 }] };
 
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
 describe("API Token management", () => {
+  it("creates a release-pipeline token with only the gray-version creation permission", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) =>
+      String(input).endsWith("/permissions") ? ok(catalog)
+        : init?.method === "POST" ? ok({ ...metadata, ...JSON.parse(String(init.body)), token: tokenValue }) : ok({ items: [] }));
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup(); renderAdmin("/admin/buaa-classhopper/api-tokens/new");
+    await user.type(await screen.findByLabelText("名称"), "发布流水线");
+    await user.click(within(screen.getByRole("group", { name: "版本管理" })).getByRole("checkbox", { name: /新建灰度版本/ }));
+    await user.click(screen.getByRole("button", { name: "预览 Token" }));
+    const preview = await screen.findByRole("region", { name: "Token 创建预览" });
+    expect(within(preview).getByText("新建灰度版本")).toBeTruthy();
+    expect(fetchMock.mock.calls.some(([, init]) => init?.method === "POST")).toBe(false);
+    await user.click(screen.getByRole("button", { name: "确认创建 Token" }));
+    await screen.findByLabelText("Token 明文");
+    const post = fetchMock.mock.calls.find(([, init]) => init?.method === "POST");
+    expect(JSON.parse(String(post?.[1]?.body))).toEqual({ name: "发布流水线", permissions: ["versions:create"] });
+  });
   it("creates, reveals once, lists metadata, and revokes a token", async () => {
     let items: typeof metadata[] = [];
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {

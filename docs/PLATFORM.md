@@ -2,13 +2,13 @@
 
 ## 职责与依赖
 
-公告按 App 隔离；广告活动和素材由平台共享，广告位和投放按 App 隔离。二者是所有已注册 App 的并列通用能力，不为每个 App 复制实现。
+Segment 在平台共享；公告和版本管理按 App 隔离；广告活动和素材由平台共享，广告位和投放按 App 隔离。不为每个 App 复制通用实现。
 
 | 层次 | 代码入口 | 责任 |
 | --- | --- | --- |
 | App 注册 | `src/apps/registry.ts` | 代码维护 `id`、`name`，校验唯一且合法的路径标识；仅后端维护，前端通过 API 获取 |
 | 后端装配 | `src/apps/routes.ts` | 为每个 App 挂载全部通用能力，另外挂载应用专属扩展 |
-| 通用业务 | `src/features/announcements/`、`src/features/ads/` | 自己的 schema、表和业务规则，接收平台传入的 App 身份 |
+| 通用业务 | `src/features/announcements/`、`src/features/ads/`、`src/features/versions/`、`src/features/segments/` | 各自拥有 schema、存储和业务规则；App 资源接收平台传入的身份 |
 | 共享媒体 | `src/features/media/`、`src/infrastructure/oss.ts` | 同源上传入口、图片校验和 OSS 存储，不引用公告业务 |
 | 管理框架 | `web/src/App.tsx`、`web/src/platform/` | React Router 路由、App 上下文、TanStack Query、会话草稿和通用 API 客户端 |
 | 应用扩展 | `src/domains/buaa-classhopper/` 与对应前端目录 | 只向 BUAA 提供 iClass 白名单和签到预约 |
@@ -27,9 +27,10 @@
 
 - `/admin/another-app/` 独立管理入口，使用同一 HTML 和管理组件，展示该 App 名称。
 - `/api/another-app/announcement` 公告读取，以及 `/api/admin/another-app/announcement` 管理接口。
+- `/admin/another-app/versions` 版本管理、`/api/admin/another-app/versions` 管理 API，以及 `/api/another-app/versions/latest` 适用版本查询；灰度引用平台共享 Segment，详见 [版本管理](./VERSIONS.md)。
 - 自动出现在 `GET /api/admin/apps` 和管理端应用选择器中。
 
-未知 App 的入口和接口返回 404。App ID 使用小写字母、数字，可用单个短横线或下划线分隔，例如 `another-app`、`another_app`；不允许重复和 `admin/assets/index/apps/media/token/ads` 保留值。前端从 `/api/admin/apps` 获取目录，根据 URL 匹配应用并向业务组件提供 App 上下文；管理 API 的 App 由后端挂载路径绑定，不接受请求体更改。切换应用前检查未保存内容，确认放弃后清除当前应用草稿，不带入其他 App。
+未知 App 的入口和接口返回 404。App ID 使用小写字母、数字，可用单个短横线或下划线分隔，例如 `another-app`、`another_app`；不允许重复和 `admin/assets/index/apps/media/token/ads/segments` 保留值。前端从 `/api/admin/apps` 获取目录，根据 URL 匹配应用并向业务组件提供 App 上下文；管理 API 的 App 由后端挂载路径绑定，不接受请求体更改。切换应用前检查未保存内容，确认放弃后清除当前应用草稿，不带入其他 App。
 
 注册 App 不会自动创建 D1 表，也不提供新增、修改或删除 App 的管理 API；业务表通过迁移显式创建。`app_id` 由代码注册表管理并出现在通用业务表中。更改或删除已有 ID 不会自动迁移、删除数据库记录或 OSS 对象；已有应用应保留稳定 ID。
 
@@ -37,7 +38,11 @@
 
 BUAA 专属签到预约的 SSO、API Token 接口及 D1 表见 [预约文档](./RESERVATIONS.md)。API Token 在各应用的管理栏目中创建、查看元数据与撤销。
 
+BUAA 发布流水线可使用 `versions:create` 权限调用 `POST /api/token/buaa-classhopper/versions` 创建灰度版本；不能提交发布类型，也不能更改最新版本。该路由复用平台版本 Service，按 App 绑定 Token 鉴权。请求与调用示例见 [版本管理文档](./VERSIONS.md#流水线创建接口)。
+
 ## 平台管理接口与前端
+
+平台人群入口为 `/admin/segments`，独立于 App。Segment 仅提供名称、三类名单、修订号和字段条目数，不提供说明字段、引用查询或消费者注册表。版本业务在 `app_versions.segment_ids` JSON 数组中保存人群 ID，由 Repository 条件写入及人群条件删除保护引用；iClass 白名单在 KV 中保存引用配置，通过 `SegmentReader.load()`、`mergeMembers`、`matchesMembers` 读取、合并与匹配。详见 [共享人群协议](./SEGMENTS.md)。
 
 `GET /api/admin/apps` 需要 Cloudflare Access，返回 `Cache-Control: no-store`，顺序与代码注册表一致：
 
@@ -86,7 +91,7 @@ import { SegmentedChoice } from "@/components/ui/segmented-choice";
 
 侧边栏切换应用时保留当前栏目类型，目标不支持该栏目时使用默认栏目；不会带上原公告 ID。Worker 只为已注册应用的合法页面返回统一 HTML，未知页面、应用或静态资源仍返回 404。
 
-草稿按 App、资源和 ID 保存在内存中，同应用内导航保留草稿；切换应用时通过确认框放弃，关闭/刷新标签页使用浏览器原生未保存提示。草稿不写 localStorage，刷新后不恢复。列表和详情缓存的 key 均包含 App 和资源，写入只使本应用缓存失效；后台刷新不会覆盖已经打开的编辑表单，写请求不自动重试。公告发生 409 后保留编辑，明确核对并采用最新版本号；白名单保持增量差异，冲突后刷新并重新合并，等待手动保存。
+草稿按平台或 App、资源和 ID 保存在内存中，同范围导航保留草稿；跨范围离开时提示，关闭或刷新标签页使用浏览器原生提醒。草稿不写 localStorage。缓存 key 区分平台与 App；后台刷新不会覆盖编辑表单，写请求不自动重试。冲突时保留编辑内容或所选 Segment，管理员核对并明确采用最新修订号后再保存。
 
 生产 CSP 保持 `script-src 'self'`，不允许内联脚本。shadcn/Radix 的定位、侧边栏尺寸和弹层滚动锁需要内联样式，因此 `style-src` 允许 `'unsafe-inline'`；图片域名仍仅按 OSS Bucket 域名放行。开发环境另允许 HMR WebSocket。
 
@@ -100,7 +105,7 @@ import { SegmentedChoice } from "@/components/ui/segmented-choice";
 
 ## 公共数据库
 
-D1 绑定为 `API_PLATFORM_DB`，建议数据库名为 `api-platform`。`migrations/` 是平台迁移目录：公告使用 `0001`–`0003`，签到预约、签到调度与 API Token 的完整表结构和索引由 `0004_reservations_and_api_tokens.sql` 一次创建；广告表由 `0005_ads.sql` 创建；现有白名单仍使用 KV。
+D1 绑定为 `API_PLATFORM_DB`，建议数据库名为 `api-platform`。公告使用迁移 `0001`–`0003`；签到预约与 API Token 使用 `0004`；广告使用 `0005`–`0006`；平台 Segment、应用版本（含行内 Segment ID 数组）和最新版本设置使用重写后的 `0007_app_versions.sql`。个人名单仅由 Segment 存在 KV 中，版本和白名单不再维护各自名单。
 
 本地：
 

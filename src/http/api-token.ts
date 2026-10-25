@@ -49,6 +49,10 @@ export function createApiTokenRoutes<const A extends PermissionApp>(appId: A) {
       routes.get(path, apiTokenAuth(appId, permission), handler);
       return this;
     },
+    post(path: string, permission: PermissionFor<A>, handler: Handler<AppEnv>) {
+      routes.post(path, apiTokenAuth(appId, permission), handler);
+      return this;
+    },
     routes,
   };
 }
