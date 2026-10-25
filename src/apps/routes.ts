@@ -6,6 +6,7 @@ import { createAdminAnnouncementRoutes, createPublicAnnouncementRoutes } from ".
 import { createAdminApiTokenRoutes } from "../features/api-tokens/routes";
 import { createAdminReservationRoutes, createApiTokenReservationRoutes, createSsoReservationRoutes } from "../domains/buaa-classhopper/reservations/routes";
 import type { SsoVerifier } from "../http/sso-auth";
+import { createAdminVersionRoutes, createPublicVersionRoutes, createApiTokenVersionRoutes } from "../features/versions/routes";
 import { appApiPath, type AppDefinition } from "./registry";
 
 /** Composition root: common capabilities are peers, application extensions are separate. */
@@ -16,6 +17,8 @@ export function mountAppRoutes(router: Hono<AppEnv>, apps: readonly AppDefinitio
     publicRoutes.route("/announcement", createPublicAnnouncementRoutes(app.id));
     adminRoutes.route("/announcement", createAdminAnnouncementRoutes(app.id, now));
     adminRoutes.route("/api-tokens", createAdminApiTokenRoutes(app.id, now));
+    publicRoutes.route("/versions", createPublicVersionRoutes(app.id, now, verifySso));
+    adminRoutes.route("/versions", createAdminVersionRoutes(app.id, now));
 
     publicRoutes.route("/ads", createPublicAdsRoutes(app.id, now));
     adminRoutes.route("/ads", createAppAdsRoutes(app.id, now));
@@ -27,6 +30,7 @@ export function mountAppRoutes(router: Hono<AppEnv>, apps: readonly AppDefinitio
       adminRoutes.route("/reservations", createAdminReservationRoutes(now));
       publicRoutes.route("/reservations", createSsoReservationRoutes(now, verifySso));
       router.route("/api/token/buaa-classhopper/reservations", createApiTokenReservationRoutes());
+      router.route("/api/token/buaa-classhopper/versions", createApiTokenVersionRoutes(app.id, now));
     }
     router.route(appApiPath(app.id), publicRoutes);
     router.route(appApiPath(app.id, true), adminRoutes);

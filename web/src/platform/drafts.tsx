@@ -41,7 +41,7 @@ export function useDraft<T>(appId: string | null, resource: string, id: string, 
 }
 const pathApp = (path: string): string | null => {
   const segment = /^\/admin\/([^/]+)/.exec(path)?.[1];
-  return !segment || segment === "ads" ? null : segment;
+  return !segment || segment === "ads" || segment === "segments" ? null : segment;
 };
 export function DraftNavigationGuard() {
   const store = useStore();

@@ -84,7 +84,7 @@ Go 服务使用只读 Token 查询签到所需的 `loginName`、`course.id` 和�
 | `POST /api/admin/{appId}/api-tokens/{id}/rotate` | 轮换有效 Token；只更换密钥摘要，返回新 Token 明文一次，旧 Token 立即失效 |
 | `DELETE /api/admin/{appId}/api-tokens/{id}/permanent` | 永久删除已撤销 Token；有效或已过期但未撤销的 Token 须先撤销 |
 
-`expiresAt` 若提供，必须是晚于当前时间且带时区的 ISO 8601 时间。权限编码、展示名称和分组由后端代码目录统一维护，创建请求的 `permissions` 只提交编码，后端按目录校验。当前 BUAA ClassHopper 的“签到预约”组只包含“读取签到预约详情”(`reservations:read`)。原始 Token 用安全随机数生成，D1 只保存 SHA-256 摘要。
+`expiresAt` 若提供，必须是晚于当前时间且带时区的 ISO 8601 时间。权限编码、展示名称和分组由后端代码目录统一维护，创建请求的 `permissions` 只提交编码，后端按目录校验。当前 BUAA ClassHopper 的“签到预约”组只包含“读取签到预约详情”(`reservations:read`)，“版本管理”组包含“新建灰度版本”(`versions:create`)，用于[发布流水线创建版本](./VERSIONS.md#流水线创建接口)。原始 Token 用安全随机数生成，D1 只保存 SHA-256 摘要。
 
 管理页面 `/admin/{appId}/api-tokens` 只展示当前应用的 Token 元数据，使用后端目录中的权限名称，支持搜索、轮换、撤销及删除已撤销 Token；“创建 Token”进入独立的 `/admin/{appId}/api-tokens/new` 页面。创建页按组展示所有权限，填写完成后在同页预览名称、所选权限和到期时间，返回修改时保留输入，确认后才创建 Token。有效期可选永不过期、7 天、30 天、90 天、1 年或自定义；自定义时间按浏览器本地时间填写，提交时转换为 UTC。新建 Token 明文只在创建成功页显示；轮换后在弹窗显示一次，关闭后不能再次获取。轮换保留 Token ID、名称、权限、到期时间和创建信息，已撤销或已过期的 Token 不可轮换。没有已登记权限的 App 无法创建 Token。
 

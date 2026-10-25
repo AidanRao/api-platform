@@ -4,7 +4,7 @@
 
 - 公开接口：`GET /api/buaa-classhopper/v1/iclass/access-policy`
 - 管理页面：`/admin/buaa-classhopper/`
-- 管理接口：`GET` / `PATCH /api/admin/buaa-classhopper/v1/iclass/access-policy`（均通过 Access 鉴权，无需 App 版本头）
+- 管理接口：`GET` / `PUT /api/admin/buaa-classhopper/v1/iclass/access-policy`（均通过 Access 鉴权，无需 App 版本头）
 - 一个绑定为 `API_PLATFORM_KV` 的生产 Workers KV namespace
 - Cloudflare Access 对管理页面和管理接口的双层保护
 
@@ -56,7 +56,7 @@ npx wrangler whoami
 npm run types:check
 npm run typecheck
 npm test
-npm run seed:local
+npm run db:migrate:local
 npm run dev
 ```
 
@@ -159,7 +159,7 @@ Access 应用默认拒绝所有未命中 Allow 策略的用户。官方流程参
 | 代码 binding | `API_PLATFORM_KV` |
 | 云端 namespace 名称（此前核对） | `PUBLIC_API_KV`；实际绑定以 ID 为准 |
 | namespace ID | `ae082c6018fd43b0bb6c62dfe84219d7` |
-| 业务 key | `buaa-classhopper:iclass:access-policy:v1` |
+| 人群快照 key | `segments:<id>:members:<uuid>`，由应用维护 |
 
 生产构建通过 `CLOUDFLARE_ENV=production` 选取此绑定，部署产物为 `web/dist/api_platform/wrangler.json`。显式 ID 指向现有 KV，Worker 改名不会重命名或复制 KV；本地开发默认使用 `.wrangler/state` 中的模拟 KV。
 
@@ -258,44 +258,13 @@ ENVIRONMENT
 ACCESS_BYPASS_LOCAL
 ```
 
-## 8. 准备并写入初始白名单
+## 8. 配置共享人群与白名单
 
-编辑 `seed/access-policy.json`，填入真实初始数据：
+部署前应用 D1 迁移，包括重写后的 `0007_app_versions.sql`。该迁移首次引入 Segment、版本（含 Segment ID 数组）和最新版本设置表，不兼容之前本地联调使用的旧 0007。
 
-```json
-{
-  "schemaVersion": 1,
-  "revision": "2026-09-11-001",
-  "studentIds": ["23370001", "ZY370002"],
-  "names": ["张三", "李四"]
-}
-```
+部署后登录 `/admin/segments`，手工创建人群并录入三类名单，再到 iClass 白名单管理页选择 Segment 并保存。白名单的 `{revision,segmentIds}` 配置存入 KV，不创建 D1 配置表；公开名单只包含姓名和学号。版本灰度在对应 App 的版本管理页关联人群。
 
-要求：
-
-- `schemaVersion` 固定为 `1`。
-- `revision` 使用上海日期，格式为 `YYYY-MM-DD-NNN`。
-- 初始版本建议使用部署当天的 `001`。
-- 学号和姓名是两个独立集合，不要求一一对应。
-- 不要提交不应该进入 Git 的真实个人数据；若仓库会公开，请使用单独的、未跟踪 seed 文件并直接用 Wrangler 写入。
-
-首次上线前写入 production KV：
-
-```bash
-npm run seed:production
-```
-
-用下面的命令确认内容：
-
-```bash
-npx wrangler kv key get \
-  --binding=API_PLATFORM_KV \
-  --remote \
-  --env production \
-  buaa-classhopper:iclass:access-policy:v1
-```
-
-> `seed:production` 是整体覆盖操作。服务上线并开始通过管理页维护后，不要把它当日常更新命令，否则会覆盖线上最新 revision 和白名单。`seed:remote` 只是它的快捷别名。
+不提供旧名单导入、seed 命令或运行时回退；旧 KV key 不再读取，也不自动删除。未选择人群时返回空名单。公开白名单协议已更换，消费者须适配，详见 [Segment 接入](./SEGMENTS.md)。
 
 ## 9. 部署前检查
 
@@ -360,10 +329,10 @@ curl -i \
 - HTTP `200`
 - `Content-Type: application/json`
 - `code` 为 `1`
-- `revision` 和 seed 一致
+- `revision` 为不透明字符串，`members` 仅包含 `student_name`、`student_id`
 - 不发生 Access 登录跳转
 
-如果返回 `503 白名单尚未配置`，说明当前 Worker 绑定的生产 KV 中还没有正确 key。
+未配置引用时返回空名单。503 表示配置或所引用人群暂时不可读，检查 KV 配置与 Segment 状态。
 
 ### 11.2 管理路径必须经过 Access
 
@@ -377,12 +346,12 @@ https://api-platform.aidanrao.top/admin/buaa-classhopper/
 
 再验证完整写入：
 
-1. 新增一个测试学号或姓名。
+1. 在共享人群中录入测试姓名或学号，再在白名单页选择该人群。
 2. 点击保存。
-3. 确认 revision 自动提升。
+3. 确认保存成功，公开 revision 随配置或人群修改而变化。
 4. 刷新页面。
 5. 确认数据仍存在。
-6. 删除测试项并再次保存。
+6. 移除测试人群引用并再次保存。
 
 ### 11.3 确认错误用户无法访问
 
@@ -392,7 +361,7 @@ https://api-platform.aidanrao.top/admin/buaa-classhopper/
 
 - `/api/buaa-classhopper/v1/iclass/access-policy`：携带 `X-App-Version: 1.5.1` 或更高版本时公开 `200`；低版本返回 `426`，缺失或无效版本头返回 `400`，错误文案包含升级提示。
 - `/admin/buaa-classhopper/`：未认证时由 Access 拦截。
-- `/api/admin/buaa-classhopper/v1/iclass/access-policy`：GET 和 PATCH 未认证时均由 Access 拦截；管理页使用 GET 读取，不携带 App 版本头。
+- `/api/admin/buaa-classhopper/v1/iclass/access-policy`：GET 和 PUT 未认证时均由 Access 拦截；管理页使用 GET 读取，不携带 App 版本头。
 - 未知 `/admin/...` 资源：认证后仍返回 `404`，不会回退管理首页。
 - HTML：`Cache-Control: no-store`。
 - `/admin/assets/*`：认证后可加载，响应包含安全头。
@@ -420,7 +389,7 @@ npm run deploy:production
 npx wrangler tail api-platform
 ```
 
-管理写入日志只记录操作者身份、旧/新 revision 和增删数量，不记录具体姓名或学号。
+管理写入日志只记录操作者身份和修订号，不记录具体姓名或学号。
 
 ### 查看版本
 
@@ -438,7 +407,7 @@ npx wrangler rollback --name api-platform
 
 ## 14. 常见问题
 
-### Access 登录成功，但管理页或 PATCH 返回 401
+### Access 登录成功，但管理接口返回 401
 
 依次检查：
 
@@ -457,21 +426,11 @@ npx wrangler rollback --name api-platform
 
 ### 公开接口返回 503
 
-检查生产 KV：
-
-```bash
-npx wrangler kv key get \
-  --binding=API_PLATFORM_KV \
-  --remote \
-  --env production \
-  buaa-classhopper:iclass:access-policy:v1
-```
-
-如果 key 不存在，确认 `wrangler.jsonc` 中 KV ID 正确，再执行一次首次 seed。
+检查 D1、KV 绑定和 0007 迁移是否正确，以及当前引用 Segment 的快照是否可读。新快照跨地区暂时不可读时可稍后重试，不使用旧名单或 seed 回退。
 
 ### 部署后仍访问旧数据
 
-Workers KV 是最终一致存储，跨地区读取可能短暂看到旧值。管理页 PATCH 成功后会直接采用写入响应，不会立即回读 KV；极端跨区域并发写入仍可能发生冲突。
+公开白名单保留 60 秒 HTTP 缓存。Segment 使用不可变 KV 快照和 D1 条件提交，管理保存成功后采用本次结果，不立即回读 KV；未提交快照不会被消费者读取。白名单引用配置自身存 KV，只能检测已观察到的过期 revision，不能保证并发写入互斥；KV 失效引用会返回 503，需手工清除或替换。
 
 ### Custom Domain 无法创建
 
@@ -486,7 +445,7 @@ Workers KV 是最终一致存储，跨地区读取可能短暂看到旧值。管
 
 - [ ] 自定义域和证书为 Active。
 - [ ] 公开 GET 在无认证环境返回 `200`。
-- [ ] 管理页面、管理员 GET 和 PATCH 都经过 Access。
+- [ ] 管理页面、管理员 GET 和 PUT 都经过 Access。
 - [ ] 非管理员账号被拒绝。
 - [ ] Worker 内部 JWT issuer/audience 验证通过。
 - [ ] 初始 KV 已写入，管理页可以保存并刷新持久化。

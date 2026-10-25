@@ -10,72 +10,28 @@
 
 App 统一在 `src/apps/registry.ts` 维护。所有 App 共享通用能力及管理页框架，各自通过 `/admin/<appId>/` 管理本应用的数据。公告按应用隔离；图片通过平台级 `/api/admin/media/images` 共享上传，不接收 App ID。BUAA 额外提供白名单管理。广告提供平台共享活动和素材、按 App 管理广告位及投放，支持横幅、轮播、卡片和开屏。
 
-[平台架构、D1 和 OSS 接入](./docs/PLATFORM.md) · [公告 API 与业务规则](./docs/ANNOUNCEMENTS.md) · [广告管理与接入](./docs/ADS.md)
+[平台架构、D1 和 OSS 接入](./docs/PLATFORM.md) · [公告 API 与业务规则](./docs/ANNOUNCEMENTS.md) · [广告管理与接入](./docs/ADS.md) · [应用版本与灰度管理](./docs/VERSIONS.md)
 
-白名单页面先在本地暂存新增与删除，只有点击“保存更改”时才调用现有 PATCH 接口。遇到 `409` 会保留草稿、重新读取最新白名单并重算有效差异，不会自动重复提交。
+Segment 在平台统一维护，白名单和版本灰度只保存人群引用。名单仅存现有 KV；人群元数据和版本引用存 D1，iClass 白名单引用配置存 KV。人群没有说明字段，不提供引用来源查询。
 
-## API
-
-### BUAA ClassHopper：公开读取白名单
+## iClass 白名单接口
 
 ```http
 GET /api/buaa-classhopper/v1/iclass/access-policy
 X-App-Version: 1.5.1
 ```
 
-请求必须携带 `X-App-Version`，格式为三段数字版本号（如 `1.5.1`），按主版本、次版本、补丁版本逐段比较。最低版本在 `src/domains/buaa-classhopper/access-policy/app-version.ts` 的 `MIN_ACCESS_POLICY_APP_VERSION` 常量中固定为 `1.5.1`，不提供线上配置。
-
-低于最低版本返回 HTTP `426`，响应为 `{"code":0,"msg":"当前 App 版本过低，请升级至 1.5.1 或以上版本后使用白名单功能","data":null}`。缺失或格式无效的版本头返回 HTTP `400`，`msg` 提示请求头无效及升级要求。成功响应保留 `Cache-Control: public, max-age=60`，并添加 `Vary: X-App-Version`，供遵循该响应头的缓存按 App 版本区分响应；错误响应使用 `Cache-Control: no-store`。提高最低版本后，已有成功缓存可在剩余有效期内继续使用。App 版本限制仅作用于该公开接口。
-
-成功响应：
+公开读取检查三段数字的 `X-App-Version`，最低为 `1.5.1`；缺失或非法返回 400，版本过低返回 426。成功使用 `Cache-Control: public, max-age=60` 和 `Vary: X-App-Version`，错误使用 no-store。
 
 ```json
-{
-  "code": 1,
-  "msg": "获取成功",
-  "data": {
-    "schemaVersion": 1,
-    "revision": "2026-09-10-001",
-    "studentIds": ["23370001", "ZY370002"],
-    "names": ["张三", "李四"]
-  }
-}
+{"code":1,"msg":"获取成功","data":{"revision":"<opaque hash>","members":{"student_name":["张三"],"student_id":["23370001"]}}}
 ```
 
-### BUAA ClassHopper：管理员读取白名单
+名单由引用的 Segment 分字段合并去重。revision 是不透明字符串，配置或所引用人群修订号变更时改变，客户端只比较是否相同。未关联人群返回空名单，已引用名单不可读返回 503。
 
-```http
-GET /api/admin/buaa-classhopper/v1/iclass/access-policy
-```
+管理接口仍为 `/api/admin/buaa-classhopper/v1/iclass/access-policy`，使用 Cloudflare Access，无需版本头。GET 返回 `{revision:1,segmentIds:[]}`；PUT 使用 `{revision,segmentIds}` 整体替换引用，已观察到的过期修订返回 409，人群不存在或不可读返回 503。配置以 `{revision,segmentIds}` 存入 KV，不创建白名单 D1 表。KV 不提供原子比较写入，不能保证并发编辑互斥。旧名单增删 PATCH 协议已移除。
 
-管理页通过该接口读取白名单，无需 `X-App-Version`，仅校验 Cloudflare Access 身份。成功响应结构与公开接口一致，响应使用 `Cache-Control: no-store`；尚未配置白名单时返回 `503`。
-
-### BUAA ClassHopper：管理员增量更新
-
-```http
-PATCH /api/admin/buaa-classhopper/v1/iclass/access-policy
-Content-Type: application/json
-```
-
-```json
-{
-  "baseRevision": "2026-09-10-001",
-  "add": {
-    "studentIds": ["23370003"],
-    "names": ["王五"]
-  },
-  "remove": {
-    "studentIds": ["23370001"],
-    "names": ["张三"]
-  }
-}
-```
-
-`add`、`remove` 及其数组按需提供，但一次请求至少要包含一个非空数组。增加已存在项和删除不存在项是幂等无操作；同一项不能在一次请求中同时增加和删除。所有操作均未改变白名单时返回当前策略，不写 KV，也不提升 revision。
-
-`baseRevision` 必须等于当前 revision，否则返回 `409` 和当前 revision。实际发生变化时，Worker 按上海日期自动生成 `YYYY-MM-DD-NNN`：同日递增数字版本，跨日从 `001` 开始。
-
-Worker 会验证 Cloudflare Access 注入的 `Cf-Access-Jwt-Assertion`，并核对签名、issuer 和 audience。请求体上限为 32 KiB；数组最多各 500 项，字符串首尾空白会被清理，重复项和未知字段会被拒绝。
+Android 客户端需要适配 `members.student_name/student_id` 和不透明 revision。本仓库不修改客户端，不保留旧字段或旧 KV 回退。完整协议见 [Segment 文档](./docs/SEGMENTS.md)。
 
 ## 代码结构
 
@@ -88,6 +44,8 @@ src/
 ├── features/
 │   ├── ads/                  # 共享活动、素材发布与 App 广告投放
 │   ├── announcements/        # 通用公告业务
+│   ├── segments/             # 平台共享人群
+│   ├── versions/             # 应用版本与人群灰度
 │   └── media/                # 通用图片上传入口
 └── domains/buaa-classhopper/ # 应用专属 iClass 白名单
 web/
@@ -101,7 +59,7 @@ web/
 
 - `src/apps/registry.ts` 只定义 App 身份；新增 App 后通用接口和管理入口自动生效，不复制公告代码或 HTML。
 - `src/apps/routes.ts` 负责装配通用能力与应用扩展。模块只拥有自己的 schema、业务逻辑和表，不维护应用名单。
-- 所有通用业务表共用 `API_PLATFORM_DB`；小型配置继续使用 `API_PLATFORM_KV`。白名单 key 仍是 `buaa-classhopper:iclass:access-policy:v1`。
+- 所有业务表共用 `API_PLATFORM_DB`；人群名单仅保存在 `API_PLATFORM_KV`，消费者只持有 Segment ID。
 - Vite 输出统一的 `web/dist/client/admin/index.html` 和 `/admin/assets/*`。Worker 验证 App 注册与 Access 身份后返回同一管理文档；前端通过 `GET /api/admin/apps` 获取应用目录，侧边栏支持切换 App，并保护未保存的草稿。
 - `AccessVerifier` 复用 Remote JWK Set 缓存；平台基础设施不依赖公告或其他业务模块。
 
@@ -116,7 +74,6 @@ web/
 ```bash
 npm install
 npm run types
-npm run seed:local
 npm run db:migrate:local
 npm run dev
 ```
@@ -147,9 +104,14 @@ npm run deploy:production:dry
 4. 创建 Cloudflare Access Self-hosted 应用，在同一个应用中添加 `你的域名/api/admin/*` 和 `你的域名/admin/*`，并只允许管理员身份访问。保留公开 GET 路径不受保护。
 5. 把该 Access 应用的 Application Audience (AUD) 填入 `ACCESS_AUD`。
 6. 在 Access 应用设置中关闭 **Cookie Path Attribute**，使同一个 `CF_Authorization` Cookie 能覆盖 `/admin/*` 与 `/api/admin/*`。
-7. 当前 production 已将 `API_PLATFORM_KV` 固定到 namespace `ae082c6018fd43b0bb6c62dfe84219d7`（此前核对的云端名称为 `PUBLIC_API_KV`；实际绑定以 ID 为准），无需重复创建。新账号部署时需替换为自己的 namespace ID，并准备初始白名单。
-8. 首次执行 `npm run seed:production`，使用 `npm run deploy:production` 发布。`seed:remote` 和 `deploy` 分别是对应 production 命令的快捷别名。后续推送到 `main` 会由 [GitHub Actions 部署流程](./docs/DEPLOYMENT.md#github-actions-自动部署) 自动完成检查、D1 迁移和发布。
+7. 当前 production 的 `API_PLATFORM_KV` 已固定 namespace，无需重复创建。新账号需替换为自己的 namespace ID。
+8. 应用 D1 迁移后使用 `npm run deploy:production` 发布，随后在 `/admin/segments` 手工创建人群并配置业务引用。后续推送到 `main` 会由 [GitHub Actions 部署流程](./docs/DEPLOYMENT.md#github-actions-自动部署) 自动完成检查、D1 迁移和发布。
 
 生产环境中，即使 `workers.dev` 地址没有经过 Access 边缘应用，Worker 仍会验证 `Cf-Access-Jwt-Assertion`，不会直接暴露管理页面或管理 API。HTML 响应使用 `no-store`；带哈希的 `/admin/assets/*` 使用私有长期缓存，并统一添加 CSP、`frame-ancestors 'none'`、`nosniff` 等安全头。生产 CSP 允许 shadcn/Radix 所需的内联样式，脚本仍限定同源；只有本地开发另允许 HMR WebSocket。
 
-[Workers KV 是最终一致存储](https://developers.cloudflare.com/kv/concepts/how-kv-works/)，管理员更新在其他地区最长可能短暂读到旧值。`baseRevision` 可以防止通常的陈旧编辑，但无法彻底消除极端跨区域同时写入的竞争；若未来需要严格串行写入，应将同一 key 的管理写入迁移到 Durable Object。写接口返回本次已写入的数据，不依赖一次立即回读。
+
+## 应用版本管理
+
+所有注册应用均支持全量／灰度版本、Markdown 更新说明和可选下载信息。新建默认灰度，仅全量可设为最新，仅灰度可关联共享 Segment。版本及引用存 D1，人群名单仅存现有 Cloudflare KV。接入接口及迁移说明见 [版本管理文档](./docs/VERSIONS.md)。
+
+BUAA ClassHopper 发布流水线可通过 `POST /api/token/buaa-classhopper/versions` 创建灰度版本，使用拥有 `versions:create` 权限的 API Token；不接受发布类型，不修改最新版本。

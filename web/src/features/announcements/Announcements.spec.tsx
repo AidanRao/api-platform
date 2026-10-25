@@ -99,7 +99,7 @@ describe("routed announcement management", () => {
     await user.upload(screen.getByLabelText("上传图片"), file); await screen.findByText("图片上传失败，请稍后重试");
     expect(textarea.value).toBe(item.content);
     uploadFails = false;
-    await user.upload(screen.getByLabelText("上传图片"), file); await screen.findByText("图片已插入，请保存公告");
+    await user.upload(screen.getByLabelText("上传图片"), file); await screen.findByText("图片已插入，请保存");
     expect(textarea.value).toBe("![图片](<https://images.example.com/a.png>)原始内容");
     expect(writes()[1]?.[0]).toBe("/api/admin/media/images"); expect(writes()[1]?.[1]?.body).toBe(file);
   });
@@ -110,7 +110,7 @@ describe("routed announcement management", () => {
     const files = [new File(["first"], "first.png", { type: "image/png" }), new File(["second"], "second.jpg", { type: "image/jpeg" })];
     const allowed = fireEvent.paste(textarea, { clipboardData: { items: files.map((file) => ({ kind: "file", type: file.type, getAsFile: () => file })), files } });
     expect(allowed).toBe(false);
-    await screen.findByText("图片已插入，请保存公告");
+    await screen.findByText("图片已插入，请保存");
     const markdown = "![图片](<https://images.example.com/a.png>)\n![图片](<https://images.example.com/a.png>)";
     expect(textarea.value).toBe(`原${markdown}容`);
     expect(writes().map(([, init]) => init?.body)).toEqual(files);
@@ -130,7 +130,7 @@ describe("routed announcement management", () => {
     expect(textarea.value).toBe(item.content);
     uploadFails = false;
     fireEvent.paste(textarea, { clipboardData });
-    await screen.findByText("图片已插入，请保存公告");
+    await screen.findByText("图片已插入，请保存");
     expect(textarea.value).toBe(`![图片](<https://images.example.com/a.png>)${item.content}`);
   });
   it("preserves normal text paste and rejects invalid clipboard images without uploading", async () => {

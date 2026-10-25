@@ -7,6 +7,13 @@ export const permissionGroupsByApp = {
         { code: "reservations:read", name: "读取签到预约详情" },
       ],
     },
+    {
+      code: "versions",
+      name: "版本管理",
+      permissions: [
+        { code: "versions:create", name: "新建灰度版本" },
+      ],
+    },
   ],
 } as const;
 

@@ -1,5 +1,5 @@
 import { EditorActions } from "@/components/ui/editor-actions";
-import { useDeferredValue, useEffect, useMemo, useRef, type ClipboardEvent } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -13,11 +13,10 @@ import { uploadImage } from "../../platform/media";
 import { AdminApiError } from "../../platform/api";
 import { ErrorNotice, Loading, useToast } from "../../platform/feedback";
 import { createAnnouncementClient } from "./api";
-import { MarkdownPreview } from "./MarkdownPreview";
+import { MarkdownEditor } from "../../components/MarkdownEditor";
 import { statusNames, formatTime } from "./presentation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -47,10 +46,7 @@ function Editor({ initial, id }: { initial: Announcement | null; id: string }) {
   const path = `/admin/${app.id}/announcements`;
   const [session, setSession, removeSession] = useDraft<Session>(app.id, "announcements", id, () => ({ saved: initial, draft: initial ? fields(initial) : emptyDraft(), conflict: false, latest: null }), dirty);
   const form = useForm<z.input<typeof createSchema>, unknown, CreateAnnouncement>({ resolver: zodResolver(createSchema), defaultValues: session.draft });
-  const textarea = useRef<HTMLTextAreaElement | null>(null);
-  const insertionCaret = useRef<number | null>(null);
-  const contentRegistration = form.register("content");
-  const preview = useDeferredValue(form.watch("content") ?? "");
+  const [uploading, setUploading] = useState(false);
   const saved = session.saved;
   const changed = dirty(session);
   useEffect(() => {
@@ -70,14 +66,7 @@ function Editor({ initial, id }: { initial: Announcement | null; id: string }) {
       }
     } finally { setSession((previous) => previous); }
   } });
-  const busy = mutation.isPending;
-  useEffect(() => {
-    if (!busy && insertionCaret.current !== null) {
-      textarea.current?.focus();
-      textarea.current?.setSelectionRange(insertionCaret.current, insertionCaret.current);
-      insertionCaret.current = null;
-    }
-  }, [busy]);
+  const busy = mutation.isPending || uploading;
   function accept(value: Announcement) {
     form.reset(fields(value));
     setSession({ saved: value, draft: fields(value), conflict: false, latest: null });
@@ -90,56 +79,20 @@ function Editor({ initial, id }: { initial: Announcement | null; id: string }) {
     toast.success(saved?.status === "published" ? "公告已保存，修改已公开生效" : "公告已保存");
     if (!saved) { removeSession(); navigate(`${path}/${updated.id}`, { replace: true }); }
   }));
-  function upload(input: File | File[], target: "content" | "cover" = "content") {
+  function uploadCover(file: File) {
     if (busy) return;
-    const files = Array.isArray(input) ? input : [input];
-    for (const file of files) {
-      if (!["image/jpeg", "image/png", "image/webp", "image/gif"].includes(file.type)) { toast.error(new Error("仅支持 JPEG、PNG、WebP、GIF 图片")); return; }
-      if (file.size > 5 * 1024 * 1024) { toast.error(new Error("图片不能超过 5 MiB")); return; }
-    }
-    const content = form.getValues("content") ?? "";
-    const start = textarea.current?.selectionStart ?? content.length;
-    const end = textarea.current?.selectionEnd ?? start;
+    if (!["image/jpeg", "image/png", "image/webp", "image/gif"].includes(file.type)) { toast.error(new Error("仅支持 JPEG、PNG、WebP、GIF 图片")); return; }
+    if (file.size > 5 * 1024 * 1024) { toast.error(new Error("图片不能超过 5 MiB")); return; }
     mutation.mutate(async () => {
-      const urls: string[] = [];
-      for (const file of files) urls.push((await uploadImage(file)).url);
-      if (target === "cover") {
-        form.setValue("coverUrl", urls[0]!, { shouldDirty: true, shouldValidate: true });
-        toast.info("封面已上传，请保存公告");
-        return;
-      }
-      const markdown = urls.map((url) => `![图片](<${url}>)`).join("\n");
-      insertionCaret.current = start + markdown.length;
-      form.setValue("content", `${content.slice(0, start)}${markdown}${content.slice(end)}`, { shouldDirty: true, shouldValidate: true });
-      toast.info("图片已插入，请保存公告");
-    });
-  }
-  function pasteImage(event: ClipboardEvent<HTMLTextAreaElement>) {
-    const images = Array.from(event.clipboardData.items)
-      .filter((item) => item.kind === "file" && item.type.startsWith("image/"))
-      .map((item) => item.getAsFile()).filter((file): file is File => file !== null);
-    const files = images.length ? images : Array.from(event.clipboardData.files).filter((file) => file.type.startsWith("image/"));
-    if (!files.length) return; // Preserve the browser's normal text paste behavior.
-    event.preventDefault();
-    upload(files);
-  }
-  function formatContent(before: string, after = "", placeholder = "文字", atLineStart = false) {
-    const content = form.getValues("content") ?? "";
-    const start = textarea.current?.selectionStart ?? content.length;
-    const end = textarea.current?.selectionEnd ?? start;
-    const selected = content.slice(start, end) || placeholder;
-    const prefix = atLineStart && start > 0 && content[start - 1] !== "\n" ? `\n${before}` : before;
-    const suffix = atLineStart && end < content.length && content[end] !== "\n" ? `${after}\n` : after;
-    form.setValue("content", `${content.slice(0, start)}${prefix}${selected}${suffix}${content.slice(end)}`, { shouldDirty: true, shouldValidate: true });
-    requestAnimationFrame(() => {
-      textarea.current?.focus();
-      textarea.current?.setSelectionRange(start + prefix.length, start + prefix.length + selected.length);
+      const { url } = await uploadImage(file);
+      form.setValue("coverUrl", url, { shouldDirty: true, shouldValidate: true });
+      toast.info("封面已上传，请保存公告");
     });
   }
   return <div className="space-y-6">
-    <header className="space-y-2"><h1 className="text-2xl font-semibold">{saved ? "编辑公告" : "新增草稿"}</h1><p className="text-sm text-muted-foreground">{saved ? `${statusNames[saved.status]} · ${formatTime(saved.publishedAt)}（上海时间）` : "保存为草稿后可发布"}</p></header>
+    <header className="space-y-2"><h1 className="text-2xl font-semibold">{saved ? "编辑公告" : "新增草稿"}</h1><p className="text-sm text-muted-foreground">{saved ? `${statusNames[saved.status]}，${formatTime(saved.publishedAt)}（上海时间）` : "保存为草稿后可发布"}</p></header>
     {session.conflict && <Card><CardHeader><CardTitle>版本冲突，编辑内容已保留</CardTitle></CardHeader><CardContent className="space-y-4">
-      {session.latest ? <><details><summary className="cursor-pointer">查看最新版本（版本 {session.latest.revision}）</summary><h3 className="my-3 font-medium">{session.latest.title}</h3>{session.latest.coverUrl ? <img src={session.latest.coverUrl} alt="服务器最新封面" className="max-h-40 max-w-full object-contain" /> : <p>无封面</p>}<p>{statusNames[session.latest.status]} · {session.latest.isPinned ? "置顶" : "未置顶"}</p><p>标签：{session.latest.tags.join("、") || "无"}</p><pre className="max-h-64 overflow-auto whitespace-pre-wrap">{session.latest.content}</pre></details>
+      {session.latest ? <><details><summary className="cursor-pointer">查看最新版本（版本 {session.latest.revision}）</summary><h3 className="my-3 font-medium">{session.latest.title}</h3>{session.latest.coverUrl ? <img src={session.latest.coverUrl} alt="服务器最新封面" className="max-h-40 max-w-full object-contain" /> : <p>无封面</p>}<p>{statusNames[session.latest.status]}，{session.latest.isPinned ? "置顶" : "未置顶"}</p><p>标签：{session.latest.tags.join("、") || "无"}</p><pre className="max-h-64 overflow-auto whitespace-pre-wrap">{session.latest.content}</pre></details>
       <div className="flex flex-wrap gap-2"><Button disabled={busy} onClick={() => { setSession((previous) => ({ ...previous, saved: previous.latest, conflict: false, latest: null })); toast.info("已采用最新版本号，请检查当前编辑内容后保存"); }}>保留我的编辑，采用最新版本号</Button>
       <Button variant="outline" disabled={busy} onClick={() => { accept(session.latest!); }}>放弃我的编辑，加载最新内容</Button></div></> : <Button disabled={busy} onClick={() => mutation.mutate(async () => { const latest = await api.get(saved!.id); setSession((previous) => ({ ...previous, latest })); })}>获取最新版本</Button>}
     </CardContent></Card>}
@@ -162,29 +115,13 @@ function Editor({ initial, id }: { initial: Announcement | null; id: string }) {
         <div className="space-y-3">
           <Label>公告封面（可选）</Label>
           {form.watch("coverUrl") && <div className="space-y-2"><img src={form.watch("coverUrl")!} alt="公告封面预览" className="max-h-56 max-w-full rounded-md border object-contain" /><Button type="button" variant="outline" onClick={() => form.setValue("coverUrl", null, { shouldDirty: true, shouldValidate: true })}>移除封面</Button></div>}
-          <div className="relative flex flex-wrap items-center gap-3 rounded-lg border border-dashed bg-muted/20 p-3"><Label htmlFor="cover-upload" className="cursor-pointer rounded-md border bg-background px-3 py-1.5 text-sm font-medium hover:bg-accent">{form.watch("coverUrl") ? "替换封面" : "选择封面"}</Label><span id="cover-hint" className="text-sm text-muted-foreground">支持 JPEG、PNG、WebP、GIF，最大 5 MiB。</span><Input id="cover-upload" type="file" accept="image/jpeg,image/png,image/webp,image/gif" aria-label="公告封面（可选）" aria-describedby="cover-hint cover-error" className="absolute left-0 top-0 h-px w-px overflow-hidden opacity-0" onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ""; if (file) upload(file, "cover"); }} /></div>
+          <div className="relative flex flex-wrap items-center gap-3 rounded-lg border border-dashed bg-muted/20 p-3"><Label htmlFor="cover-upload" className="cursor-pointer rounded-md border bg-background px-3 py-1.5 text-sm font-medium hover:bg-accent">{form.watch("coverUrl") ? "替换封面" : "选择封面"}</Label><span id="cover-hint" className="text-sm text-muted-foreground">支持 JPEG、PNG、WebP、GIF，最大 5 MiB。</span><Input id="cover-upload" type="file" accept="image/jpeg,image/png,image/webp,image/gif" aria-label="公告封面（可选）" aria-describedby="cover-hint cover-error" className="absolute left-0 top-0 h-px w-px overflow-hidden opacity-0" onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ""; if (file) uploadCover(file); }} /></div>
           <p id="cover-error" role="alert" className="text-sm text-destructive">{form.formState.errors.coverUrl?.message}</p>
         </div>
-        <div className="space-y-3">
-          <div className="flex flex-wrap items-baseline justify-between gap-2"><Label htmlFor="announcement-content">公告内容（Markdown）</Label></div>
-          <div className="overflow-hidden rounded-xl border bg-background shadow-sm">
-            <div className="flex flex-wrap items-center justify-between gap-2 border-b bg-muted/30 px-3 py-2">
-              <div role="toolbar" aria-label="Markdown 格式" className="flex flex-wrap items-center gap-1">
-                <Button type="button" variant="ghost" size="xs" onClick={() => formatContent("## ", "", "标题", true)}>标题</Button>
-                <Button type="button" variant="ghost" size="xs" onClick={() => formatContent("**", "**")}>加粗</Button>
-                <Button type="button" variant="ghost" size="xs" onClick={() => formatContent("- ", "", "列表项", true)}>列表</Button>
-                <Button type="button" variant="ghost" size="xs" onClick={() => formatContent("[", "](https://)", "链接文字")}>链接</Button>
-              </div>
-              <div className="relative"><Label htmlFor="image-upload" className="inline-flex h-7 cursor-pointer items-center rounded-md px-2 text-xs font-medium hover:bg-accent">上传图片</Label><Input id="image-upload" type="file" accept="image/jpeg,image/png,image/webp,image/gif" className="absolute left-0 top-0 h-px w-px overflow-hidden opacity-0" onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ""; if (file) upload(file); }} /></div>
-            </div>
-            <div className="grid md:grid-cols-2">
-              <div className="min-w-0"><div className="border-b px-4 py-2 text-xs font-medium text-muted-foreground">Markdown 源码</div><Textarea onPaste={pasteImage} id="announcement-content" placeholder="输入公告正文，支持 Markdown…" className="min-h-[28rem] resize-y rounded-none border-0 bg-transparent px-4 py-4 font-mono text-sm leading-6 shadow-none focus-visible:ring-0" {...contentRegistration} ref={(element) => { contentRegistration.ref(element); textarea.current = element; }} aria-invalid={!!form.formState.errors.content} aria-describedby="content-hint content-error" /></div>
-              <div className="min-w-0 border-t md:border-t-0 md:border-l"><div className="border-b px-4 py-2 text-xs font-medium text-muted-foreground">实时预览</div><div className="min-h-[28rem] max-h-[40rem] overflow-auto px-4 py-4">{preview.trim() ? <MarkdownPreview content={preview} /> : <p className="text-sm text-muted-foreground">在左侧输入内容后，这里会显示最终效果。</p>}</div></div>
-            </div>
-          </div>
-          <p id="content-error" role="alert" className="text-sm text-destructive">{form.formState.errors.content?.message}</p>
-          <p id="content-hint" className="text-sm text-muted-foreground">可直接粘贴图片，上传后自动插入正文。</p>
-        </div>
+        <MarkdownEditor id="announcement-content" label="公告内容（Markdown）" value={form.watch("content") ?? ""}
+          onChange={(value) => form.setValue("content", value, { shouldDirty: true, shouldValidate: true })}
+          onUploadingChange={(active) => { setUploading(active); setSession((previous) => previous, active); }}
+          disabled={busy} placeholder="输入公告正文，支持 Markdown…" error={form.formState.errors.content?.message} />
       </fieldset>
       {saved?.status === "published" && <p className="text-sm text-muted-foreground">保存后，修改会立即对外公开。</p>}
       <EditorActions><Button type="submit" disabled={busy || session.conflict || (!!saved && !changed)}>{busy ? "处理中…" : saved ? "保存公告" : "保存草稿"}</Button>

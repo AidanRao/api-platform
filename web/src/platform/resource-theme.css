@@ -1,0 +1,28 @@
+/* Radix Colors light slate/red scales: https://github.com/radix-ui/colors */
+.resource-theme {
+  --background: #fcfcfd; /* slate 1 */
+  --foreground: #1c2024; /* slate 12 */
+  --card: var(--background);
+  --card-foreground: var(--foreground);
+  --popover: var(--background);
+  --popover-foreground: var(--foreground);
+  --primary: #1c2024; /* slate 12 */
+  --primary-foreground: #fcfcfd; /* slate 1 */
+  --secondary: #f0f0f3; /* slate 3 */
+  --secondary-foreground: var(--foreground);
+  --muted: #f0f0f3; /* slate 3 */
+  --muted-foreground: #60646c; /* slate 11 */
+  --accent: #e8e8ec; /* slate 4 */
+  --accent-foreground: var(--foreground);
+  --destructive: #ce2c31; /* red 11: accessible text */
+  --border: #d9d9e0; /* slate 6 */
+  --input: #cdced6; /* slate 7 */
+  --ring: #8b8d98; /* slate 9 */
+  color: var(--foreground);
+}
+.resource-theme [data-slot="button"],
+.resource-theme [data-slot="input"],
+.resource-theme [data-slot="textarea"] { box-shadow: none; transition: none; }
+.resource-theme .markdown-preview :is(h1, h2, h3, h4, h5, h6),
+.resource-theme [data-slot="alert-dialog-title"] { font-size: 1rem; }
+.resource-theme .markdown-preview blockquote { border-left-width: 1px; }

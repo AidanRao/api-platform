@@ -61,6 +61,10 @@ describe("reservations and API tokens", () => {
       code: "reservations", name: "签到预约", permissions: [
         { code: "reservations:read", name: "读取签到预约详情" },
       ],
+    }, {
+      code: "versions", name: "版本管理", permissions: [
+        { code: "versions:create", name: "新建灰度版本" },
+      ],
     }] });
     const apps = defineApps([{ id: "buaa-classhopper", name: "BUAA" }, { id: "other-app", name: "Other" }]);
     const multi = createApp(async () => ({ email: null, subject: "admin" }), () => now, apps, sso);
