@@ -6,7 +6,7 @@ import type { PolicyConfig } from "../../src/domains/buaa-classhopper/access-pol
 import { renderAdmin, apps, ok } from "./test-utils";
 import { act } from "@testing-library/react";
 
-const policy: PolicyConfig = { revision: 1, rules: [], default: { type: "segments", segmentIds: [] } };
+const policy: PolicyConfig = { revision: 1, rules: [], default: { unmatched: { type: "segments", segmentIds: [] }, invalidVersion: { type: "segments", segmentIds: [] } } };
 
 let requestMock = vi.fn<typeof fetch>();
 beforeEach(() => {

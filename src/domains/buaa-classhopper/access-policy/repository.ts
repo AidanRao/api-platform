@@ -1,7 +1,7 @@
 import { ApiError } from "../../../http/errors";
 import { emptyPolicyConfig, policyConfigSchema, type PolicyConfig } from "./schema";
 
-export const ACCESS_POLICY_KEY = "buaa-classhopper:iclass:access-policy:v3";
+export const ACCESS_POLICY_KEY = "buaa-classhopper:iclass:access-policy:v4";
 
 export class AccessPolicyRepository {
   constructor(private readonly kv: KVNamespace) {}

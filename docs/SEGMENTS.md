@@ -60,29 +60,33 @@ D1 的 `segments` 保存名称、修订号、当前快照 key 和三个字段条
 ```ts
 type PolicyResult =
   | { type: "segments"; segmentIds: string[] }
+  | { type: "empty" }
   | { type: "unavailable" };
 type PolicyConfig = {
   revision: number;
   rules: { version: string; result: PolicyResult }[];
-  default: PolicyResult;
+  default: {
+    unmatched: PolicyResult;
+    invalidVersion: PolicyResult;
+  };
 };
 ```
 
-每条规则精确匹配一个 `x.y.z` 版本，复用版本管理的版本号校验（不接受前导零、预发布后缀或超出安全整数的分量）；版本号不能重复。`default` 为必填结果；Segment 允许空选。合法版本未命中时使用默认结果，缺失或非法版本头固定返回成功和空名单，不读取配置，也不使用默认结果。
+每条规则精确匹配一个 `x.y.z` 版本，复用版本管理的版本号校验（不接受前导零、预发布后缀或超出安全整数的分量）；版本号不能重复。`default.unmatched` 和 `default.invalidVersion` 均为必填结果；Segment 允许空选。合法版本未命中时使用 `default.unmatched`；缺失或非法版本头使用 `default.invalidVersion`。两项独立配置，均可选择“指定人群”“返回空名单”或“不可用”，均在管理页的“默认策略”tab 中编辑。
 
-配置仅存 `API_PLATFORM_KV` 的 `buaa-classhopper:iclass:access-policy:v3`，不建立白名单 D1 表。不读取或迁移旧 key，也不自动删除旧数据。新 key 不存在时返回 `{revision:1,rules:[],default:{type:"segments",segmentIds:[]}}`。保存前验证所有规则及默认结果引用的人群可读，整份配置一次写入 KV；读取或写入故障返回 503。
+配置仅存 `API_PLATFORM_KV` 的 `buaa-classhopper:iclass:access-policy:v4`，不建立白名单 D1 表。不读取或迁移旧 key，也不自动删除旧数据。新 key 不存在时返回 revision 为 1、空 rules，`default.unmatched` 和 `default.invalidVersion` 均为 `{type:"empty"}`。保存前验证所有规则及两类默认结果引用的人群可读，整份配置一次写入 KV；读取或写入故障返回 503。
 
 保存检查当前可读的 revision，已观察到的过期修订返回 409，成功后加一。KV 为最终一致存储，不支持原子比较写入，因此同时保存可能互相覆盖；管理端保留整份草稿并支持 409 后核对重试，但不承诺跨地区即时一致或并发互斥。
 
 KV 引用没有数据库外键保护。仅被白名单引用的人群可被删除，删除后只有选中该引用的公开请求返回 503，直到管理员清除或替换失效引用；其他规则或默认结果不受影响。Segment 模块不扫描 KV 业务配置，不维护消费者注册表。版本引用由 Repository 条件写入和删除保护。
 
-公开路径仍为 `GET /api/buaa-classhopper/v1/iclass/access-policy`，使用 `X-App-Version` 选择结果，不再设置固定最低版本。配置为不可用时返回 426，提示“当前版本暂不可用”。命中结果的 Segment 不可读时返回 503，不回退默认结果。成功保留 `Cache-Control: public, max-age=60` 和 `Vary: X-App-Version`，错误使用 `no-store`。成功返回：
+公开路径仍为 `GET /api/buaa-classhopper/v1/iclass/access-policy`，使用 `X-App-Version` 选择结果，不再设置固定最低版本。配置为“返回空名单”（`{type:"empty"}`）时，不加载 Segment 数据，返回 200、`code:1` 和空 `studentIds`、`names` 数组；配置为“不可用”时返回 426，响应体为 `{code:0,msg:"当前版本暂不可用",data:null}`。命中结果的 Segment 不可读时返回 503，不回退默认结果。成功保留 `Cache-Control: public, max-age=60` 和 `Vary: X-App-Version`，错误使用 `no-store`。成功返回：
 
 ```json
 {"code":1,"msg":"获取成功","data":{"schemaVersion":1,"revision":"<opaque hash>","studentIds":[],"names":[]}}
 ```
 
-公开接口保持原有响应结构：`schemaVersion` 固定为 1，所选 Segment 的 `student_id` 合并去重后返回 `studentIds`，`student_name` 合并去重后返回 `names`，不返回 `members`、`sso_id` 或 Segment ID。后台白名单合并预览也只显示姓名和学号。客户端按姓名或学号判断命中。revision 为配置修订号、命中版本规则标识（默认结果使用 null）和有序 `[segmentId,segmentRevision]` 列表等信息的 SHA-256；客户端只比较是否相同，不解析日期或数字。所选人群编辑也会改变公开 revision，无需重新保存白名单引用。缺失或非法版本头使用独立、固定的 SHA-256 revision，不随配置变化。
+公开接口保持原有响应结构：`schemaVersion` 固定为 1，所选 Segment 的 `student_id` 合并去重后返回 `studentIds`，`student_name` 合并去重后返回 `names`，不返回 `members`、`sso_id` 或 Segment ID。后台白名单合并预览也只显示姓名和学号。客户端按姓名或学号判断命中。revision 为配置修订号、命中版本规则标识或默认分支标识（合法版本未命中使用 `unmatched-version`，版本号缺失或无效使用 `invalid-version`）和有序 `[segmentId,segmentRevision]` 列表等信息的 SHA-256；客户端只比较是否相同，不解析日期或数字。所选人群编辑也会改变公开 revision，无需重新保存白名单引用。缺失或非法版本头也按配置读取名单和计算 revision，所选人群或配置修订变化时同步更新。
 
 Android 客户端继续读取 `schemaVersion`、`revision`、`studentIds`、`names`，无需改为 Segment 的字段结构。本仓库不修改 Android。
 

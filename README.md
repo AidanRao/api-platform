@@ -21,17 +21,17 @@ GET /api/buaa-classhopper/v1/iclass/access-policy
 X-App-Version: 1.5.1
 ```
 
-公开读取按 `X-App-Version` 精确匹配配置的 `x.y.z` 版本规则，未命中时使用必填的默认结果。结果可为指定 Segment（允许空名单）或不可用（426，提示“当前版本暂不可用”）。缺失或非法版本头固定返回成功和空名单，不读取配置。成功使用 `Cache-Control: public, max-age=60` 和 `Vary: X-App-Version`，错误使用 no-store。
+公开读取按 `X-App-Version` 精确匹配配置的 `x.y.z` 版本规则，合法版本未命中时使用 `default.unmatched`，缺失或非法版本头使用 `default.invalidVersion`，两项均须配置。结果可为指定 Segment、返回空名单（200，`studentIds` 和 `names` 均为空数组），或不可用（426，`{code:0,msg:"当前版本暂不可用",data:null}`）。成功使用 `Cache-Control: public, max-age=60` 和 `Vary: X-App-Version`，错误使用 no-store。
 
 ```json
 {"code":1,"msg":"获取成功","data":{"schemaVersion":1,"revision":"<opaque hash>","studentIds":["23370001"],"names":["张三"]}}
 ```
 
-名单由命中结果引用的 Segment 分字段合并去重。revision 是不透明字符串，包含配置修订、命中规则和所选人群修订信息；缺失或非法版本头使用固定 revision。未关联人群返回空名单，命中结果的引用不可读返回 503，不回退默认结果。
+名单由命中结果引用的 Segment 分字段合并去重。revision 是不透明字符串，包含配置修订、命中的版本规则或默认分支，以及所选人群修订信息。未关联人群返回空名单，命中结果的引用不可读返回 503，不回退默认结果。
 
-管理接口仍为 `/api/admin/buaa-classhopper/v1/iclass/access-policy`，使用 Cloudflare Access，无需版本头。GET、PUT 使用 `{revision,rules,default}` 整体读取和保存；`rules` 为 `{version,result}` 数组，版本号不可重复，`default` 必填。结果结构为 `{type:"segments",segmentIds:[]}` 或 `{type:"unavailable"}`。已观察到的过期修订返回 409，任一规则或默认结果引用的人群不存在或不可读时拒绝保存并返回 503。
+管理接口仍为 `/api/admin/buaa-classhopper/v1/iclass/access-policy`，使用 Cloudflare Access，无需版本头。GET、PUT 使用 `{revision,rules,default}` 整体读取和保存；`rules` 为 `{version,result}` 数组，版本号不可重复，`default` 下的 `unmatched` 和 `invalidVersion` 均为必填结果，分别对应合法版本未匹配和版本号缺失或无效。结果结构为 `{type:"segments",segmentIds:[...]}`、`{type:"empty"}` 或 `{type:"unavailable"}`，三者为并列选项。已观察到的过期修订返回 409，任一规则或默认结果引用的人群不存在或不可读时拒绝保存并返回 503。
 
-配置仅存 KV key `buaa-classhopper:iclass:access-policy:v3`，不创建白名单 D1 表；不读取或迁移旧 key。尚无配置时返回 `{revision:1,rules:[],default:{type:"segments",segmentIds:[]}}`。KV 不提供原子比较写入，不能保证并发编辑互斥。旧名单增删 PATCH 协议已移除。
+配置仅存 KV key `buaa-classhopper:iclass:access-policy:v4`，不创建白名单 D1 表；不读取或迁移旧 key。尚无配置时返回 revision 为 1、空 rules，两类默认结果均为 `{type:"empty"}`。KV 不提供原子比较写入，不能保证并发编辑互斥。旧名单增删 PATCH 协议已移除。
 
 公开响应沿用客户端原有的 `schemaVersion:1`、`revision`、`studentIds` 和 `names` 字段，将 Segment 的学号、姓名分别映射为 `studentIds` 和 `names`，不暴露 `members` 或 `sso_id`。revision 仍为不透明字符串，现有客户端按原字段读取即可。不读取旧 KV 名单。完整协议见 [Segment 文档](./docs/SEGMENTS.md)。
 

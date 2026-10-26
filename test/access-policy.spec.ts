@@ -4,12 +4,12 @@ import { clean, migrate, read, request, segment } from "./segment-fixture";
 import { emptyMembers, type Segment } from "../src/features/segments/schema";
 import { accessPolicySchema, emptyPolicyConfig, type AccessPolicy, type PolicyConfig, type PolicyResult } from "../src/domains/buaa-classhopper/access-policy/schema";
 import { ADMIN_ACCESS_POLICY_PATH as admin, PUBLIC_ACCESS_POLICY_PATH as publicPath } from "../src/domains/buaa-classhopper/access-policy/routes";
-import { ACCESS_POLICY_KEY, AccessPolicyRepository } from "../src/domains/buaa-classhopper/access-policy/repository";
 import { AccessPolicyService } from "../src/domains/buaa-classhopper/access-policy/service";
+import { ACCESS_POLICY_KEY, AccessPolicyRepository } from "../src/domains/buaa-classhopper/access-policy/repository";
 
 beforeAll(migrate); beforeEach(clean);
 const selected = (...segmentIds: string[]): PolicyResult => ({ type: "segments", segmentIds });
-const config = (result: PolicyResult, rules: PolicyConfig["rules"] = [], revision = 1): PolicyConfig => ({ revision, rules, default: result });
+const config = (result: PolicyResult, rules: PolicyConfig["rules"] = [], revision = 1, invalidVersion: PolicyResult = { type: "empty" }): PolicyConfig => ({ revision, rules, default: { unmatched: result, invalidVersion } });
 const save = (input: PolicyConfig) => request(admin, "PUT", input).then(read<PolicyConfig>);
 const publicPolicy = (version = "1.5.1") => request(publicPath, "GET", undefined, { "X-App-Version": version });
 const emptyPolicy = { schemaVersion: 1, revision: expect.any(String), studentIds: [], names: [] };
@@ -19,6 +19,7 @@ describe("version-configured iClass whitelist", () => {
     await env.API_PLATFORM_KV.put("buaa-classhopper:iclass:access-policy:v1", JSON.stringify({ names: ["legacy"] }));
     await env.API_PLATFORM_KV.put("buaa-classhopper:iclass:access-policy:v2", JSON.stringify({ revision: 9, segmentIds: ["legacy"] }));
     expect(await request(admin).then(read<PolicyConfig>)).toEqual(emptyPolicyConfig());
+    await env.API_PLATFORM_KV.put("buaa-classhopper:iclass:access-policy:v3", JSON.stringify({ revision: 5, rules: [], default: { type: "unavailable" } }));
     const response = await publicPolicy("1.5.0");
     expect(response.headers.get("Cache-Control")).toBe("public, max-age=60"); expect(response.headers.get("Vary")).toBe("X-App-Version");
     expect(await read<AccessPolicy>(response)).toEqual(emptyPolicy);
@@ -31,7 +32,7 @@ describe("version-configured iClass whitelist", () => {
     const a = await segment("a", { student_id: ["01"] }), b = await segment("b", { student_name: ["李四"] });
     const saved = await save(config(selected(b.id), [
       { version: "1.5.0", result: selected(a.id) },
-      { version: "1.5.1", result: selected() },
+      { version: "1.5.1", result: { type: "empty" } },
       { version: "1.5.2", result: selected(a.id) },
       { version: "2.0.0", result: { type: "unavailable" } },
     ]));
@@ -48,25 +49,46 @@ describe("version-configured iClass whitelist", () => {
     expect(await unavailable.json()).toEqual({ code: 0, msg: "当前版本暂不可用", data: null });
   });
 
-  it("returns a fixed empty policy for absent/invalid headers regardless of the default or broken storage", async () => {
-    const s = await segment();
-    await save(config({ type: "unavailable" }, [{ version: "1.5.1", result: selected(s.id) }]));
-    expect((await publicPolicy("9.0.0")).status).toBe(426);
-    const initial = await request(publicPath).then(read<AccessPolicy>);
-    expect(initial).toEqual(emptyPolicy); expect(initial.revision).toMatch(/^[a-f0-9]{64}$/);
+  it("configures missing/invalid versions independently and updates their public revision with selected members", async () => {
+    const a = await segment("invalid", { student_id: ["01"] }), b = await segment("unmatched", { student_id: ["02"] });
+    await save(config(selected(b.id), [{ version: "1.5.1", result: { type: "empty" } }], 1, selected(a.id)));
+    expect((await publicPolicy("9.0.0").then(read<AccessPolicy>)).studentIds).toEqual(["02"]);
+    expect(await publicPolicy().then(read<AccessPolicy>)).toEqual(emptyPolicy);
+    const before = await request(publicPath).then(read<AccessPolicy>);
+    expect(before.studentIds).toEqual(["01"]); expect(before.revision).toMatch(/^[a-f0-9]{64}$/);
     for (const version of ["", "1.5", "01.5.1", "1.5.1-beta", "9007199254740992.0.0"]) {
       const response = await publicPolicy(version);
       expect(response.headers.get("Cache-Control")).toBe("public, max-age=60"); expect(response.headers.get("Vary")).toBe("X-App-Version");
-      expect(await read<AccessPolicy>(response)).toEqual(initial);
+      expect(await read<AccessPolicy>(response)).toEqual(before);
     }
-    await save(config(selected(s.id), [], 2));
-    expect(await request(publicPath).then(read<AccessPolicy>)).toEqual(initial);
-    await env.API_PLATFORM_KV.put(ACCESS_POLICY_KEY, "not-json");
-    expect(await request(publicPath).then(read<AccessPolicy>)).toEqual(initial);
-    const repo = new AccessPolicyRepository(env.API_PLATFORM_KV), get = vi.spyOn(repo, "get");
-    const load = vi.fn();
-    expect(await new AccessPolicyService(repo, { load }).publicPolicy()).toEqual(initial);
-    expect(get).not.toHaveBeenCalled(); expect(load).not.toHaveBeenCalled();
+    await request(`/api/admin/segments/${a.id}`, "PUT", { revision: 1, name: a.name, members: { ...emptyMembers(), student_id: ["03"] } }).then(read<Segment>);
+    const after = await request(publicPath).then(read<AccessPolicy>);
+    expect(after.studentIds).toEqual(["03"]); expect(after.revision).not.toBe(before.revision);
+    await save(config(selected(b.id), [], 2, { type: "unavailable" }));
+    for (const response of [await request(publicPath), await publicPolicy("invalid")]) {
+      expect(response.status).toBe(426); expect(response.headers.get("Cache-Control")).toBe("no-store");
+    }
+    expect((await publicPolicy("9.0.0").then(read<AccessPolicy>)).studentIds).toEqual(["02"]);
+    await save(config({ type: "unavailable" }, [], 3, { type: "empty" }));
+    expect((await publicPolicy("9.0.0")).status).toBe(426);
+    expect(await request(publicPath).then(read<AccessPolicy>)).toEqual(emptyPolicy);
+    expect((await request(publicPath).then(read<AccessPolicy>)).revision).not.toBe(after.revision);
+  });
+
+  it("returns explicit empty policies without loading Segment data for rules or either default", async () => {
+    const input = config({ type: "empty" }, [{ version: "1.5.1", result: { type: "empty" } }]);
+    await save(input);
+    const load = vi.fn().mockRejectedValue(new Error("Segment storage unavailable"));
+    const service = new AccessPolicyService(new AccessPolicyRepository(env.API_PLATFORM_KV), { load });
+    const revisions = new Set<string>();
+    for (const version of ["1.5.1", "9.0.0", undefined]) {
+      const policy = await service.publicPolicy(version);
+      expect(policy).toEqual(emptyPolicy); revisions.add(policy.revision);
+    }
+    expect(load).not.toHaveBeenCalled(); expect(revisions.size).toBe(3);
+    const response = await publicPolicy();
+    expect(response.status).toBe(200); expect(response.headers.get("Cache-Control")).toBe("public, max-age=60");
+    expect(await response.json()).toEqual({ code: 1, msg: "获取成功", data: emptyPolicy });
   });
 
   it("merges members and changes revision for configuration or selected Segment edits only", async () => {
@@ -90,9 +112,12 @@ describe("version-configured iClass whitelist", () => {
 
   it("rejects missing defaults, duplicate/invalid versions and invalid result shapes without writing", async () => {
     const unavailable = { type: "unavailable" };
-    const valid = config(selected(), [{ version: "1.5.1", result: selected() }]);
+    const valid = config(selected(), [{ version: "1.5.1", result: { type: "empty" } }]);
     const invalid = [
       { revision: 1, rules: [] },
+      { ...valid, default: { unmatched: selected() } },
+      { ...valid, default: { ...valid.default, unmatched: { type: "empty", segmentIds: [] } } },
+      { ...valid, default: { invalidVersion: selected() } },
       { ...valid, rules: [...valid.rules, ...valid.rules] },
       ...["1.5", "01.5.1", "1.5.1-beta"].map((version) => ({ ...valid, rules: [{ version, result: unavailable }] })),
       { ...valid, default: { type: "segments" } },
@@ -109,7 +134,7 @@ describe("version-configured iClass whitelist", () => {
     const saved = await save(config(selected(a.id)));
     expect((await request(admin, "PUT", config(selected()))).status).toBe(409);
     const missing = selected("SEGM-20261024-AAAAAAAAAA");
-    for (const input of [config(missing, [], 2), config(selected(), [{ version: "9.0.0", result: missing }], 2)]) {
+    for (const input of [config(missing, [], 2), config(selected(), [{ version: "9.0.0", result: missing }], 2), config(selected(), [], 2, missing)]) {
       expect((await request(admin, "PUT", input)).status).toBe(503);
       expect(await request(admin).then(read<PolicyConfig>)).toEqual(saved);
     }
@@ -117,7 +142,7 @@ describe("version-configured iClass whitelist", () => {
 
   it("fails only requests selecting a deleted Segment and allows replacing broken references", async () => {
     const s = await segment();
-    await save(config(selected(), [{ version: "1.5.1", result: selected(s.id) }, { version: "2.0.0", result: { type: "unavailable" } }]));
+    await save(config({ type: "empty" }, [{ version: "1.5.1", result: selected(s.id) }, { version: "2.0.0", result: { type: "unavailable" } }]));
     expect((await request(`/api/admin/segments/${s.id}`, "DELETE", { revision: 1 })).status).toBe(200);
     const broken = await publicPolicy(); expect(broken.status).toBe(503); expect(broken.headers.get("Cache-Control")).toBe("no-store");
     expect(await publicPolicy("1.5.2").then(read<AccessPolicy>)).toEqual(emptyPolicy);
@@ -130,7 +155,7 @@ describe("version-configured iClass whitelist", () => {
   it("returns 503 for corrupt configuration and KV read/write failures", async () => {
     for (const stored of ["not-json", JSON.stringify({ revision: 1, rules: [] })]) {
       await env.API_PLATFORM_KV.put(ACCESS_POLICY_KEY, stored);
-      expect((await request(admin)).status).toBe(503); expect((await publicPolicy()).status).toBe(503);
+      expect((await request(admin)).status).toBe(503); expect((await publicPolicy()).status).toBe(503); expect((await request(publicPath)).status).toBe(503);
     }
     const kv = { get: vi.fn().mockRejectedValue(new Error("offline")), put: vi.fn().mockRejectedValue(new Error("offline")) };
     const repository = new AccessPolicyRepository(kv as unknown as KVNamespace);
@@ -141,9 +166,10 @@ describe("version-configured iClass whitelist", () => {
 
   it("fails with 503 for an unreadable selected Segment snapshot without falling back", async () => {
     const s = await segment();
-    await save(config(selected(), [{ version: "1.5.1", result: selected(s.id) }]));
+    await save(config(selected(), [{ version: "1.5.1", result: selected(s.id) }], 1, selected(s.id)));
     await env.API_PLATFORM_DB.prepare("UPDATE segments SET snapshot_key=? WHERE id=?").bind(`missing:${crypto.randomUUID()}`, s.id).run();
     const response = await publicPolicy(); expect(response.status).toBe(503); expect(response.headers.get("Cache-Control")).toBe("no-store");
+    expect((await request(publicPath)).status).toBe(503);
     expect(await publicPolicy("1.5.2").then(read<AccessPolicy>)).toEqual(emptyPolicy);
     expect((await request(admin, "PUT", config(selected(s.id), [], 2))).status).toBe(503);
   });
