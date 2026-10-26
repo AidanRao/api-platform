@@ -1,5 +1,6 @@
 import { useId, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Tabs } from "radix-ui";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -36,11 +37,15 @@ function Editor({ initial }: { initial: PolicyConfig }) {
   const app = useApplication(), client = useQueryClient(), toast = useToast();
   const [session, set] = useDraft<Session>(app.id, "whitelist", "policy", () => ({ saved: initial, draft: toDraft(initial), conflict: false, latest: null }), dirty);
   const [error, setError] = useState<unknown>(null);
+  const [tab, setTab] = useState("versions");
   const save = useMutation({ mutationFn: async () => {
     setError(null); set((s) => s, true);
     try {
       const parsed = policyUpdateSchema.safeParse(toConfig(session));
-      if (!parsed.success) throw new Error(parsed.error.issues.map((issue) => issue.message).join("；"));
+      if (!parsed.success) {
+        setTab(parsed.error.issues.some((issue) => issue.path[0] === "rules") ? "versions" : "default");
+        throw new Error(parsed.error.issues.map((issue) => issue.message).join("；"));
+      }
       const saved = await savePolicy(parsed.data);
       set({ saved, draft: toDraft(saved), conflict: false, latest: null });
       client.setQueryData(resourceKey(app.id, "whitelist"), saved); toast.success("白名单配置已保存");
@@ -66,15 +71,20 @@ function Editor({ initial }: { initial: PolicyConfig }) {
         <Button type="button" variant="outline" onClick={() => { set((s) => ({ ...s, saved: s.latest!, latest: null, conflict: false })); setError(null); }}>保留更改，采用最新修订号</Button>
       </> : <Button type="button" variant="outline" onClick={() => void fetchPolicy().then((latest) => set((s) => ({ ...s, latest }))).catch(setError)}>重新获取配置</Button>}
     </div>}
-    <form className="space-y-6" onSubmit={(e) => { e.preventDefault(); if (!save.isPending && !session.conflict && dirty(session)) save.mutate(); }}>
-      <section aria-label="版本规则" className="space-y-4">
-        <div className="flex items-center justify-between gap-3"><h2 className="font-semibold">版本规则</h2><Button type="button" variant="outline" disabled={save.isPending} onClick={() => set((s) => ({ ...s, draft: { ...s.draft, rules: [...s.draft.rules, { key: crypto.randomUUID(), version: "", result: { type: "segments", segmentIds: [] } }] } }))}>添加规则</Button></div>
-        {session.draft.rules.map((rule, index) => <RuleEditor key={rule.key} rule={rule} index={index} disabled={save.isPending} onChange={(change) => updateRule(rule.key, change)} onRemove={() => set((s) => ({ ...s, draft: { ...s.draft, rules: s.draft.rules.filter((item) => item.key !== rule.key) } }))} />)}
-      </section>
-      <section aria-label="默认结果" className="space-y-4 border-t pt-5">
-        <h2 className="font-semibold">默认结果</h2>
-        <ResultEditor value={session.draft.default} disabled={save.isPending} onChange={(value) => set((s) => ({ ...s, draft: { ...s.draft, default: value } }))} />
-      </section>
+    <form className="space-y-6" noValidate onSubmit={(e) => { e.preventDefault(); if (!save.isPending && !session.conflict && dirty(session)) save.mutate(); }}>
+      <Tabs.Root value={tab} onValueChange={setTab}>
+        <Tabs.List aria-label="白名单策略" className="mb-6 flex gap-6 border-b">
+          <Tabs.Trigger value="versions" disabled={save.isPending} className="-mb-px border-b border-transparent px-1 pb-3 text-sm font-medium text-muted-foreground data-[state=active]:border-primary data-[state=active]:text-foreground focus-visible:outline-2 focus-visible:outline-ring disabled:opacity-50">版本策略</Tabs.Trigger>
+          <Tabs.Trigger value="default" disabled={save.isPending} className="-mb-px border-b border-transparent px-1 pb-3 text-sm font-medium text-muted-foreground data-[state=active]:border-primary data-[state=active]:text-foreground focus-visible:outline-2 focus-visible:outline-ring disabled:opacity-50">默认策略</Tabs.Trigger>
+        </Tabs.List>
+        <Tabs.Content value="versions" className="space-y-4">
+          <div className="flex justify-end"><Button type="button" variant="outline" disabled={save.isPending} onClick={() => set((s) => ({ ...s, draft: { ...s.draft, rules: [...s.draft.rules, { key: crypto.randomUUID(), version: "", result: { type: "segments", segmentIds: [] } }] } }))}>添加规则</Button></div>
+          {session.draft.rules.map((rule, index) => <RuleEditor key={rule.key} rule={rule} index={index} disabled={save.isPending} onChange={(change) => updateRule(rule.key, change)} onRemove={() => set((s) => ({ ...s, draft: { ...s.draft, rules: s.draft.rules.filter((item) => item.key !== rule.key) } }))} />)}
+        </Tabs.Content>
+        <Tabs.Content value="default">
+          <ResultEditor value={session.draft.default} disabled={save.isPending} onChange={(value) => set((s) => ({ ...s, draft: { ...s.draft, default: value } }))} />
+        </Tabs.Content>
+      </Tabs.Root>
       <EditorActions><Button type="submit" disabled={save.isPending || session.conflict || !dirty(session)}>{save.isPending ? "保存中…" : "保存配置"}</Button><Button type="button" variant="outline" disabled={save.isPending || !dirty(session)} onClick={() => { set((s) => ({ ...s, draft: toDraft(s.saved), conflict: false, latest: null })); setError(null); }}>放弃更改</Button></EditorActions>
     </form>
   </div>;

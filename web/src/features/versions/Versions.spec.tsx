@@ -32,6 +32,12 @@ beforeEach(() => {
 });
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 const writes = () => vi.mocked(fetch).mock.calls.filter(([, init]) => init?.method);
+async function chooseSegment(user: ReturnType<typeof userEvent.setup>) {
+  await user.click(await screen.findByRole("button", { name: "添加人群" }));
+  const sheet = within(await screen.findByRole("dialog", { name: "选择人群" }));
+  await user.click(await sheet.findByRole("checkbox", { name: /内测人群/ }));
+  await user.click(sheet.getByRole("button", { name: "完成" }));
+}
 
 describe("version management", () => {
   it("creates version metadata with Markdown preview", async () => {
@@ -66,11 +72,11 @@ describe("version management", () => {
     notes.focus(); notes.setSelectionRange(0, 4);
     await user.click(screen.getByRole("button", { name: "加粗" }));
     await screen.findByText("新增功能", { selector: "strong" });
-    await user.click(await screen.findByRole("checkbox", { name: /内测人群/ }));
+    await chooseSegment(user);
     await user.click(screen.getByRole("radio", { name: "全量" }));
     expect(screen.queryByRole("checkbox", { name: /内测人群/ })).toBeNull();
     await user.click(screen.getByRole("radio", { name: "灰度" }));
-    expect(screen.getByRole("checkbox", { name: /内测人群/ }).getAttribute("data-state")).toBe("checked");
+    expect(await screen.findByRole("button", { name: "移除人群 内测人群" })).toBeTruthy();
     await user.click(screen.getByRole("tab", { name: "安装包" }));
     expect(screen.queryByLabelText("版本号")).toBeNull();
     fireEvent.change(screen.getByLabelText("下载地址"), { target: { value: "https://cdn.example.com/new.apk" } });
@@ -78,7 +84,7 @@ describe("version management", () => {
     fireEvent.change(screen.getByLabelText("文件大小（字节）"), { target: { value: "1024" } });
     await user.click(screen.getByRole("tab", { name: "基本信息" }));
     expect((screen.getByLabelText("更新说明（Markdown）") as HTMLTextAreaElement).value).toBe("**新增功能**");
-    expect(screen.getByRole("checkbox", { name: /内测人群/ }).getAttribute("data-state")).toBe("checked");
+    expect(await screen.findByRole("button", { name: "移除人群 内测人群" })).toBeTruthy();
     expect(writes()).toHaveLength(0);
     await user.click(screen.getByRole("button", { name: "保存版本" }));
     await waitFor(() => expect(writes()).toHaveLength(1));
@@ -89,7 +95,7 @@ describe("version management", () => {
     const user = userEvent.setup(); renderAdmin(`${path}/new`);
     fireEvent.change(await screen.findByLabelText("版本号"), { target: { value: "1.6.0" } });
     fireEvent.change(screen.getByLabelText("versionCode"), { target: { value: "2" } });
-    await user.click(await screen.findByRole("checkbox", { name: /内测人群/ }));
+    await chooseSegment(user);
     await user.click(screen.getByRole("tab", { name: "安装包" }));
     await user.click(screen.getByRole("button", { name: "保存版本" }));
     await waitFor(() => expect(items.find((item) => item.version === "1.6.0")?.segmentIds).toEqual([segmentId]));
@@ -194,7 +200,7 @@ describe("version management", () => {
   });
   it("saves and clears segment references in the editor", async () => {
     const user = userEvent.setup(); renderAdmin(`${path}/1.4.1`);
-    await user.click(await screen.findByRole("checkbox", { name: /内测人群/ }));
+    await chooseSegment(user);
     expect(screen.queryByLabelText("sso_id 名单")).toBeNull();
     await user.click(screen.getByRole("button", { name: "保存版本" }));
     await waitFor(() => expect(items[0]!.segmentIds).toEqual([segmentId]));
@@ -205,9 +211,9 @@ describe("version management", () => {
   });
   it("keeps selected segments after an editor conflict", async () => {
     conflict = true; const user = userEvent.setup(); renderAdmin(`${path}/1.4.1`);
-    await user.click(await screen.findByRole("checkbox", { name: /内测人群/ })); await user.click(screen.getByRole("button", { name: "保存版本" }));
+    await chooseSegment(user); await user.click(screen.getByRole("button", { name: "保存版本" }));
     await screen.findByRole("button", { name: "保留我的编辑，采用最新修订号" });
-    expect(screen.getByRole("checkbox", { name: /内测人群/ }).getAttribute("data-state")).toBe("checked");
+    expect(await screen.findByRole("button", { name: "移除人群 内测人群" })).toBeTruthy();
     conflict = false; await user.click(screen.getByRole("button", { name: "保留我的编辑，采用最新修订号" })); await user.click(screen.getByRole("button", { name: "保存版本" }));
     await waitFor(() => expect(writes()).toHaveLength(2)); expect(JSON.parse(writes()[1]![1]!.body as string)).toMatchObject({ revision: 2, segmentIds: [segmentId] });
   });
