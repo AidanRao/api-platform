@@ -262,7 +262,7 @@ ACCESS_BYPASS_LOCAL
 
 部署前应用 D1 迁移，包括 `0007_app_versions.sql` 和后续 `0008_version_package_info.sql`。该迁移首次引入 Segment、版本（含 Segment ID 数组）和最新版本设置表，不兼容之前本地联调使用的旧 0007。
 
-部署后登录 `/admin/segments`，手工创建人群并录入三类名单，再到 iClass 白名单管理页选择 Segment 并保存。白名单的 `{revision,segmentIds}` 配置存入 KV，不创建 D1 配置表；公开名单只包含姓名和学号。版本灰度在对应 App 的版本管理页关联人群。
+部署后登录 `/admin/segments`，手工创建人群并录入三类名单，再到 iClass 白名单管理页选择 Segment 并保存。白名单的 `{revision,rules,default}` 配置存入 KV key `buaa-classhopper:iclass:access-policy:v3`，按精确版本配置指定人群或不可用，必须设置默认结果；不创建 D1 配置表，不迁移旧配置，新 key 尚无配置时默认返回空名单。公开名单只包含姓名和学号。版本灰度在对应 App 的版本管理页关联人群。
 
 不提供旧名单导入、seed 命令或运行时回退；旧 KV key 不再读取，也不自动删除。未选择人群时返回空名单。公开白名单协议已更换，消费者须适配，详见 [Segment 接入](./SEGMENTS.md)。
 
@@ -326,13 +326,13 @@ curl -i \
 
 预期：
 
-- HTTP `200`
+- 在该版本命中结果为指定人群，或新 key 尚无配置时，HTTP `200`
 - `Content-Type: application/json`
 - `code` 为 `1`
-- `revision` 为不透明字符串，`members` 仅包含 `student_name`、`student_id`
+- `revision` 为不透明字符串，名单字段为 `studentIds`、`names`
 - 不发生 Access 登录跳转
 
-未配置引用时返回空名单。503 表示配置或所引用人群暂时不可读，检查 KV 配置与 Segment 状态。
+未命中版本规则时使用默认结果。结果指定人群且为空选时返回空名单；结果为不可用时返回 426。503 表示配置或选中结果引用的人群暂时不可读，检查 KV 配置与 Segment 状态。缺失或非法版本头始终返回成功和空名单。
 
 ### 11.2 管理路径必须经过 Access
 
@@ -342,16 +342,16 @@ curl -i \
 https://api-platform.aidanrao.top/admin/buaa-classhopper/
 ```
 
-预期先进入 Cloudflare Access 登录流程。登录允许的管理员邮箱后，页面应显示当前 revision 和白名单。
+预期先进入 Cloudflare Access 登录流程。登录允许的管理员邮箱后，页面应显示版本规则和默认结果。
 
 再验证完整写入：
 
-1. 在共享人群中录入测试姓名或学号，再在白名单页选择该人群。
-2. 点击保存。
-3. 确认保存成功，公开 revision 随配置或人群修改而变化。
-4. 刷新页面。
-5. 确认数据仍存在。
-6. 移除测试人群引用并再次保存。
+1. 在共享人群中录入测试姓名或学号。
+2. 在白名单页添加精确版本规则，选择该人群，并设置默认结果。
+3. 保存后携带对应 `X-App-Version` 读取公开接口，确认名单及 revision。
+4. 使用未配置的合法版本确认默认结果，缺失或非法版本头应返回空名单。
+5. 刷新管理页面，确认规则和默认结果仍存在。
+6. 移除测试规则或人群引用并再次保存。
 
 ### 11.3 确认错误用户无法访问
 
@@ -359,7 +359,7 @@ https://api-platform.aidanrao.top/admin/buaa-classhopper/
 
 ### 11.4 检查安全边界
 
-- `/api/buaa-classhopper/v1/iclass/access-policy`：携带 `X-App-Version: 1.5.1` 或更高版本时公开 `200`；低版本返回 `426`，缺失或无效版本头返回 `400`，错误文案包含升级提示。
+- `/api/buaa-classhopper/v1/iclass/access-policy`：合法 `X-App-Version` 精确匹配版本规则，未命中使用默认结果；指定人群返回 `200`，不可用返回 `426`。缺失或无效版本头返回 `200` 和固定空名单，不使用默认结果。
 - `/admin/buaa-classhopper/`：未认证时由 Access 拦截。
 - `/api/admin/buaa-classhopper/v1/iclass/access-policy`：GET 和 PUT 未认证时均由 Access 拦截；管理页使用 GET 读取，不携带 App 版本头。
 - 未知 `/admin/...` 资源：认证后仍返回 `404`，不会回退管理首页。

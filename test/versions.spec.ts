@@ -182,7 +182,7 @@ describe("segment-backed application versions", () => {
   it("applies a shared membership edit to both whitelist and version consumers without rewriting references", async () => {
     const s = await segment("共享", { student_id: ["01"], sso_id: ["user-1"] });
     await create(); await associate("1.4.1", [s.id]);
-    await request(ADMIN_ACCESS_POLICY_PATH, "PUT", { revision: 1, segmentIds: [s.id] });
+    await request(ADMIN_ACCESS_POLICY_PATH, "PUT", { revision: 1, rules: [], default: { type: "segments", segmentIds: [s.id] } }).then(read);
     const before = await request(PUBLIC_ACCESS_POLICY_PATH, "GET", undefined, { "X-App-Version": "1.5.1" }).then(read<AccessPolicy>);
     expect((await resolve(undefined, true)).version?.version).toBe("1.4.1");
     await request(`/api/admin/segments/${s.id}`, "PUT", { revision: 1, name: s.name, members: { ...emptyMembers(), student_id: ["02"] } }).then(read<Segment>);

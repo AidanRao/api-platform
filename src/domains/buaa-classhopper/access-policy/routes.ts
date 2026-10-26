@@ -4,7 +4,7 @@ import { errorResponse, methodNotAllowed, successResponse } from "../../../http/
 import { jsonBody, parseInput } from "../../../http/validation";
 import type { AppEnv } from "../../../http/types";
 import { createSegmentService } from "../../../features/segments/service";
-import { HEADER_APP_VERSION, MIN_ACCESS_POLICY_APP_VERSION, isSupportedAppVersion, parseAppVersion } from "./app-version";
+import { HEADER_APP_VERSION } from "./app-version";
 import { policyUpdateSchema } from "./schema";
 import { AccessPolicyRepository } from "./repository";
 import { AccessPolicyService } from "./service";
@@ -20,10 +20,7 @@ function service(c: Context<AppEnv>, now: () => Date) {
 export function createPublicBuaaClasshopperRoutes() {
   const routes = new Hono<AppEnv>();
   routes.get(ACCESS_POLICY_ROUTE_PATH, async (c) => {
-    const version = parseAppVersion(c.req.header(HEADER_APP_VERSION));
-    if (version === null) return errorResponse(`缺少或无效的 ${HEADER_APP_VERSION} 请求头，请升级至 ${MIN_ACCESS_POLICY_APP_VERSION} 或以上版本后重试`, 400, { headers: { "Cache-Control": "no-store" } });
-    if (!isSupportedAppVersion(version)) return errorResponse(`当前 App 版本过低，请升级至 ${MIN_ACCESS_POLICY_APP_VERSION} 或以上版本后使用白名单功能`, 426, { headers: { "Cache-Control": "no-store" } });
-    return successResponse("获取成功", await service(c, () => new Date()).publicPolicy(), 200, { "Cache-Control": "public, max-age=60", Vary: HEADER_APP_VERSION });
+    return successResponse("获取成功", await service(c, () => new Date()).publicPolicy(c.req.header(HEADER_APP_VERSION)), 200, { "Cache-Control": "public, max-age=60", Vary: HEADER_APP_VERSION });
   });
   routes.all(ACCESS_POLICY_ROUTE_PATH, () => methodNotAllowed("GET"));
   return routes;
