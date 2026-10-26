@@ -22,7 +22,7 @@ beforeEach(() => {
 });
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 const writes = () => vi.mocked(fetch).mock.calls.filter(([, init]) => init?.method);
-async function chooseSegment(user: ReturnType<typeof userEvent.setup>, picker = screen) {
+async function chooseSegment(user: ReturnType<typeof userEvent.setup>, picker: Pick<typeof screen, "findByRole"> = screen) {
   await user.click(await picker.findByRole("button", { name: "添加人群" }));
   const sheet = within(await screen.findByRole("dialog", { name: "选择人群" }));
   await user.click(await sheet.findByRole("checkbox", { name: /共享人群/ }));
@@ -77,6 +77,28 @@ describe("whitelist segment configuration", () => {
     await waitFor(() => expect(config.default).toEqual({ type: "segments", segmentIds: [id] }));
     expect(writes()[0]![0]).toBe(policyPath); expect(writes()[0]![1]!.method).toBe("PUT"); expect(JSON.parse(writes()[0]![1]!.body as string)).toEqual({ revision: 1, rules: [], default: { type: "segments", segmentIds: [id] } });
     expect(new Headers(vi.mocked(fetch).mock.calls[0]![1]?.headers).has("X-App-Version")).toBe(false);
+  });
+  it("keeps selected names without loading the catalog and retries failed sheet loading", async () => {
+    config.default = { type: "segments", segmentIds: [id] };
+    const original = vi.mocked(fetch).getMockImplementation()!;
+    let rejectOptions = true;
+    vi.mocked(fetch).mockImplementation((input, init) => {
+      const url = new URL(String(input), "https://test.invalid");
+      if (url.pathname === "/api/admin/segments" && url.searchParams.get("pageSize") === "100" && rejectOptions) return Promise.resolve(fail(503, "人群列表暂时不可用"));
+      return original(input, init);
+    });
+    const user = userEvent.setup(); renderAdmin();
+    await user.click(await screen.findByRole("tab", { name: "默认策略" }));
+    await screen.findByRole("button", { name: "移除人群 共享人群" });
+    expect(vi.mocked(fetch).mock.calls.some(([url]) => String(url).includes("pageSize=100"))).toBe(false);
+    await user.click(screen.getByRole("button", { name: "添加人群" }));
+    await screen.findByText("人群列表暂时不可用");
+    rejectOptions = false;
+    await user.click(screen.getByRole("button", { name: "重新加载人群" }));
+    expect((await screen.findByRole("checkbox", { name: /共享人群/ })).getAttribute("data-state")).toBe("checked");
+    await user.click(screen.getByRole("button", { name: "完成" }));
+    expect(await screen.findByRole("button", { name: "移除人群 共享人群" })).toBeTruthy();
+    expect(writes()).toHaveLength(0);
   });
   it("preserves all rules and the default on conflict and requires explicit adoption", async () => {
     conflict = true; const user = userEvent.setup(); renderAdmin();
