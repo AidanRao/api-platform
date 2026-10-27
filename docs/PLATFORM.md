@@ -80,13 +80,13 @@ import { SegmentedChoice } from "@/components/ui/segmented-choice";
 | 路由 | 行为 |
 | --- | --- |
 | `/admin/` | 平台入口，提示从侧边栏选择应用，不自动选中 |
-| `/admin/:appId/` | BUAA 跳转白名单，其他应用跳转公告列表 |
+| `/admin/:appId/` | BUAA 跳转版本管理，其他应用跳转公告列表 |
 | `/admin/:appId/announcements` | 公告列表，`page` 和 `status` 查询参数支持历史前进后退 |
 | `/admin/:appId/announcements/new` | 新建草稿 |
 | `/admin/:appId/announcements/:id` | 公告编辑 |
 | `/admin/:appId/api-tokens` | 当前应用的 API Token 列表、轮换、撤销及撤销后删除 |
 | `/admin/:appId/api-tokens/new` | 独立的 Token 创建与一次性明文展示页 |
-| `/admin/buaa-classhopper/whitelist` | 应用专属白名单 |
+| `/admin/buaa-classhopper/whitelist` | 旧入口，跳转版本管理；白名单在版本编辑页配置 |
 | `/admin/buaa-classhopper/reservations` | 全部用户签到预约的分页列表 |
 
 侧边栏切换应用时保留当前栏目类型，目标不支持该栏目时使用默认栏目；不会带上原公告 ID。Worker 只为已注册应用的合法页面返回统一 HTML，未知页面、应用或静态资源仍返回 404。

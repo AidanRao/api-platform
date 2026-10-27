@@ -9,7 +9,7 @@ export const policyResultSchema = z.discriminatedUnion("type", [
 ]);
 export const policyConfigSchema = z.object({
   revision: z.number().int().positive(),
-  rules: z.array(z.object({ version: versionNumberSchema, result: policyResultSchema }).strict()),
+  rules: z.array(z.object({ version: versionNumberSchema, segmentIds: segmentIdsSchema.refine((ids) => ids.length > 0, "版本白名单至少选择一个人群，空选时应移除规则") }).strict()),
   default: z.object({ unmatched: policyResultSchema, invalidVersion: policyResultSchema }).strict(),
 }).strict().superRefine((config, ctx) => {
   const versions = new Set<string>();

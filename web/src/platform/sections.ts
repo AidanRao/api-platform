@@ -9,7 +9,6 @@ const commonSections: readonly AdminSection[] = [
 ];
 const appSections: Readonly<Record<string, readonly AdminSection[]>> = {
   "buaa-classhopper": [
-    { id: "whitelist", label: "白名单管理" },
     { id: "reservations", label: "签到预约" },
   ],
 };
@@ -18,5 +17,5 @@ export function sectionsForApp(app: AppDefinition): readonly AdminSection[] {
 }
 export function appLandingPath(app: AppDefinition, section?: string): string {
   const sections = sectionsForApp(app);
-  return `/admin/${encodeURIComponent(app.id)}/${sections.find((item) => item.id === section)?.id ?? sections[0]!.id}`;
+  return `/admin/${encodeURIComponent(app.id)}/${sections.find((item) => item.id === section)?.id ?? (app.id === "buaa-classhopper" ? "versions" : sections[0]!.id)}`;
 }

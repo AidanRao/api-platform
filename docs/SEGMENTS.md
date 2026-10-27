@@ -64,7 +64,7 @@ type PolicyResult =
   | { type: "unavailable" };
 type PolicyConfig = {
   revision: number;
-  rules: { version: string; result: PolicyResult }[];
+  rules: { version: string; segmentIds: string[] }[];
   default: {
     unmatched: PolicyResult;
     invalidVersion: PolicyResult;
@@ -72,7 +72,7 @@ type PolicyConfig = {
 };
 ```
 
-每条规则精确匹配一个 `x.y.z` 版本，复用版本管理的版本号校验（不接受前导零、预发布后缀或超出安全整数的分量）；版本号不能重复。`default.unmatched` 和 `default.invalidVersion` 均为必填结果；Segment 允许空选。合法版本未命中时使用 `default.unmatched`；缺失或非法版本头使用 `default.invalidVersion`。两项独立配置，均可选择“指定人群”“返回空名单”或“不可用”，均在管理页的“默认策略”tab 中编辑。
+每条规则精确匹配一个 `x.y.z` 版本，复用版本管理的版本号校验（不接受前导零、预发布后缀或超出安全整数的分量）；版本号不能重复。规则只保存非空 `segmentIds`，在 BUAA 版本编辑页“白名单”页签添加或移除 Segment 并独立保存；空选保存会移除该版本规则，使用 `default.unmatched`。规则不接受 `result`，也不再支持版本级空名单或不可用。`default.unmatched` 和 `default.invalidVersion` 均为必填结果；默认策略的“指定人群”允许空选。合法版本未命中时使用 `default.unmatched`；缺失或非法版本头使用 `default.invalidVersion`。两项默认结果均可选择“指定人群”“返回空名单”或“不可用”，通过白名单页签右上角“默认策略”切换到内联编辑并单独保存；仅 Segment 选择使用 Sheet。白名单和灰度人群分别维护，全量版本也可配置白名单。未上线的旧规则结构直接移除，不提供兼容读取或迁移。
 
 配置仅存 `API_PLATFORM_KV` 的 `buaa-classhopper:iclass:access-policy:v4`，不建立白名单 D1 表。不读取或迁移旧 key，也不自动删除旧数据。新 key 不存在时返回 revision 为 1、空 rules，`default.unmatched` 和 `default.invalidVersion` 均为 `{type:"empty"}`。保存前验证所有规则及两类默认结果引用的人群可读，整份配置一次写入 KV；读取或写入故障返回 503。
 

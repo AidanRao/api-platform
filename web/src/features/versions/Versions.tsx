@@ -29,11 +29,12 @@ function Management() {
     {settings.isError && <ErrorNotice error={settings.error} />}
     {mutation.isError && <div className="space-y-2"><ErrorNotice error={mutation.error} /><Button size="sm" variant="outline" onClick={() => { void client.invalidateQueries({ queryKey: root }); mutation.reset(); }}>刷新后重新操作</Button></div>}
     {versions.isPending ? <Loading /> : versions.isError ? <><ErrorNotice error={versions.error} /><Button onClick={() => void versions.refetch()} variant="outline">重新加载</Button></> : <>
-      <Table><TableHeader><TableRow><TableHead>版本</TableHead><TableHead>发布类型</TableHead><TableHead>下载信息</TableHead><TableHead>关联人群</TableHead><TableHead className="text-right">操作</TableHead></TableRow></TableHeader><TableBody>
+      <Table><TableHeader><TableRow><TableHead>版本</TableHead><TableHead>发布类型</TableHead><TableHead>下载信息</TableHead><TableHead>灰度人群</TableHead><TableHead className="text-right">操作</TableHead></TableRow></TableHeader><TableBody>
         {versions.data.items.map((v) => <TableRow key={v.version}><TableCell><div className="flex items-center gap-2"><Link className="font-medium hover:underline" to={`/admin/${app.id}/versions/${v.version}`}>{v.version}</Link><span className="text-xs text-muted-foreground">{v.versionCode}</span>{settings.data?.latestVersion === v.version && <Badge>最新</Badge>}</div></TableCell>
           <TableCell>{v.releaseType === "full" ? "全量" : "灰度"}</TableCell>
           <TableCell><div className="max-w-64 space-y-1"><p>{formatSize(v.packageInfo?.downloadSizeBytes ?? null)}</p>{v.packageInfo?.downloadUrl ? <a href={v.packageInfo?.downloadUrl} target="_blank" rel="noreferrer" className="block truncate text-xs text-muted-foreground underline">{v.packageInfo?.downloadUrl}</a> : <p className="text-xs text-muted-foreground">无下载地址</p>}</div></TableCell>
-          <TableCell>{v.releaseType === "gray" ? `${v.segmentIds.length} 个` : "—"}</TableCell><TableCell><div className="flex flex-wrap justify-end gap-2">
+          <TableCell>{v.releaseType === "gray" ? `${v.segmentIds.length} 个` : "—"}</TableCell>
+          <TableCell><div className="flex flex-wrap justify-end gap-2">
               <Button asChild variant="outline" size="sm"><Link to={`/admin/${app.id}/versions/${v.version}`}>编辑</Link></Button>
               <Button variant="outline" size="sm" disabled={mutation.isPending || !settings.data || settings.data.latestVersion === v.version || v.segmentIds.length > 0} title={v.segmentIds.length ? "请先解除人群关联" : undefined} onClick={() => setDeleting(v)}>删除</Button>
           </div></TableCell></TableRow>)}

@@ -8,7 +8,7 @@
 /admin/
 ```
 
-App 统一在 `src/apps/registry.ts` 维护。所有 App 共享通用能力及管理页框架，各自通过 `/admin/<appId>/` 管理本应用的数据。公告按应用隔离；图片通过平台级 `/api/admin/media/images` 共享上传，不接收 App ID。BUAA 额外提供白名单管理。广告提供平台共享活动和素材、按 App 管理广告位及投放，支持横幅、轮播、卡片和开屏。
+App 统一在 `src/apps/registry.ts` 维护。所有 App 共享通用能力及管理页框架，各自通过 `/admin/<appId>/` 管理本应用的数据。公告按应用隔离；图片通过平台级 `/api/admin/media/images` 共享上传，不接收 App ID。BUAA 在版本编辑页额外提供白名单配置，默认策略通过白名单页签右上角入口内联编辑，白名单和版本资料分别保存。广告提供平台共享活动和素材、按 App 管理广告位及投放，支持横幅、轮播、卡片和开屏。
 
 [平台架构、D1 和 OSS 接入](./docs/PLATFORM.md) · [公告 API 与业务规则](./docs/ANNOUNCEMENTS.md) · [广告管理与接入](./docs/ADS.md) · [应用版本与灰度管理](./docs/VERSIONS.md)
 
@@ -29,7 +29,7 @@ X-App-Version: 1.5.1
 
 名单由命中结果引用的 Segment 分字段合并去重。revision 是不透明字符串，包含配置修订、命中的版本规则或默认分支，以及所选人群修订信息。未关联人群返回空名单，命中结果的引用不可读返回 503，不回退默认结果。
 
-管理接口仍为 `/api/admin/buaa-classhopper/v1/iclass/access-policy`，使用 Cloudflare Access，无需版本头。GET、PUT 使用 `{revision,rules,default}` 整体读取和保存；`rules` 为 `{version,result}` 数组，版本号不可重复，`default` 下的 `unmatched` 和 `invalidVersion` 均为必填结果，分别对应合法版本未匹配和版本号缺失或无效。结果结构为 `{type:"segments",segmentIds:[...]}`、`{type:"empty"}` 或 `{type:"unavailable"}`，三者为并列选项。已观察到的过期修订返回 409，任一规则或默认结果引用的人群不存在或不可读时拒绝保存并返回 503。
+管理接口仍为 `/api/admin/buaa-classhopper/v1/iclass/access-policy`，使用 Cloudflare Access，无需版本头。GET、PUT 使用 `{revision,rules,default}` 整体读取和保存；`rules` 为 `{version,segmentIds}` 数组，版本号不可重复，Segment ID 数组必须非空，空选时移除规则。版本规则不支持 `result` 或其他结果类型。`default` 下的 `unmatched` 和 `invalidVersion` 均为必填结果，分别对应合法版本未匹配和版本号缺失或无效。仅默认结果支持 `{type:"segments",segmentIds:[...]}`、`{type:"empty"}` 或 `{type:"unavailable"}`。已观察到的过期修订返回 409，任一规则或默认结果引用的人群不存在或不可读时拒绝保存并返回 503。未上线的旧版本规则结构直接移除，不提供兼容或迁移。
 
 配置仅存 KV key `buaa-classhopper:iclass:access-policy:v4`，不创建白名单 D1 表；不读取或迁移旧 key。尚无配置时返回 revision 为 1、空 rules，两类默认结果均为 `{type:"empty"}`。KV 不提供原子比较写入，不能保证并发编辑互斥。旧名单增删 PATCH 协议已移除。
 

@@ -1,6 +1,11 @@
-import { createBrowserRouter, createMemoryRouter, type RouteObject } from "react-router";
+import { createBrowserRouter, createMemoryRouter, Navigate, useParams, type RouteObject } from "react-router";
 import { AppIndex, AppScope, NotFound, PlatformLayout } from "./AdminLayout";
 import { ErrorNotice } from "./platform/feedback";
+
+function LegacyWhitelistRedirect() {
+  const { appId } = useParams();
+  return appId === "buaa-classhopper" ? <Navigate to="/admin/buaa-classhopper/versions" replace /> : <NotFound />;
+}
 
 const adminRoutes: RouteObject[] = [{ path: "/admin", Component: PlatformLayout, errorElement: <ErrorNotice error={new Error("页面加载失败，请刷新后重试")} />, children: [
   { index: true, element: <div className="space-y-3 py-16"><h1 className="text-3xl font-semibold">应用管理</h1><p className="text-muted-foreground">从侧边栏选择一个应用，开始管理。</p></div> },
@@ -28,7 +33,7 @@ const adminRoutes: RouteObject[] = [{ path: "/admin", Component: PlatformLayout,
     { path: "announcements", lazy: async () => ({ Component: (await import("./features/announcements/Announcements")).default }) },
     { path: "announcements/new", lazy: async () => ({ Component: (await import("./features/announcements/AnnouncementEditor")).default }) },
     { path: "announcements/:id", lazy: async () => ({ Component: (await import("./features/announcements/AnnouncementEditor")).default }) },
-    { path: "whitelist", lazy: async () => ({ Component: (await import("./domains/buaa-classhopper/whitelist/WhitelistManagement")).default }) },
+    { path: "whitelist", Component: LegacyWhitelistRedirect },
     { path: "reservations", lazy: async () => ({ Component: (await import("./domains/buaa-classhopper/reservations/Reservations")).default }) },
     { path: "api-tokens", lazy: async () => ({ Component: (await import("./features/api-tokens/ApiTokens")).default }) },
     { path: "api-tokens/new", lazy: async () => ({ Component: (await import("./features/api-tokens/CreateApiToken")).default }) },

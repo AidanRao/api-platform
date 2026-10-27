@@ -30,15 +30,17 @@ describe("application management shell", () => {
     expect(fetchMock.mock.calls[0]?.[0]).toBe("/api/admin/second-app/announcement?page=1&pageSize=20");
   });
 
-  it("switches apps via the sidebar without carrying resource IDs, and falls back from unsupported sections", async () => {
-    mockFetch().mockImplementation(async (input) => String(input).includes("access-policy") ? policyResponse(policy) : ok({ items: [], page: 1, pageSize: 20, total: 0 }));
+  it("switches apps via the sidebar without carrying resource IDs and preserves common sections", async () => {
+    mockFetch().mockImplementation(async (input) => String(input).includes("access-policy") ? policyResponse(policy) : String(input).endsWith("/versions/latest") ? ok({ latestVersion: null, revision: 1 }) : ok({ items: [], page: 1, pageSize: 20, total: 0 }));
     const user = userEvent.setup();
     const { router } = renderAdmin();
-    await screen.findByRole("heading", { name: "白名单管理" });
+    await screen.findByRole("heading", { name: "版本管理" });
     await user.click(screen.getByRole("combobox", { name: "选择应用" }));
     await user.click(screen.getByRole("option", { name: "Second App" }));
+    await screen.findByText("暂无版本，请先新建版本。");
+    expect(router.state.location.pathname).toBe("/admin/second-app/versions");
+    await user.click(screen.getByRole("link", { name: "公告管理" }));
     await screen.findByText("暂无公告");
-    expect(router.state.location.pathname).toBe("/admin/second-app/announcements");
     await user.click(screen.getByRole("combobox", { name: "选择应用" }));
     await user.click(screen.getByRole("option", { name: "BUAA ClassHopper" }));
     await waitFor(() => expect(router.state.location.pathname).toBe("/admin/buaa-classhopper/announcements"));

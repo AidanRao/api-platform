@@ -18,6 +18,7 @@ import { Label } from "@/components/ui/label";
 import { SegmentedChoice } from "@/components/ui/segmented-choice";
 import { AlertDialog, AlertDialogTrigger, AlertDialogContent, AlertDialogHeader, AlertDialogTitle, AlertDialogDescription, AlertDialogFooter, AlertDialogCancel, AlertDialogAction } from "@/components/ui/alert-dialog";
 import { createVersionClient } from "./api";
+import { VersionWhitelist } from "../../domains/buaa-classhopper/whitelist/PolicyEditor";
 import "../../platform/resource-theme.css";
 
 type Draft = { version: string; releaseType: AppVersion["releaseType"]; segmentIds: string[]; releaseNotes: string; downloadUrl: string; size: string; versionCode: string; sha256: string };
@@ -95,12 +96,13 @@ function Editor({ initial, id }: { initial: AppVersion | null; id: string }) {
         <div className="flex flex-wrap gap-2"><Button type="button" variant="outline" onClick={() => { setSession((s) => ({ ...s, saved: s.latest, conflict: false, latest: null })); setError(null); }}>保留我的编辑，采用最新修订号</Button><Button type="button" variant="outline" onClick={() => { const saved = session.latest!; setSession({ saved, draft: fields(saved), conflict: false, latest: null }); setError(null); }}>加载服务器内容</Button></div></>}
       {!session.latest && <Button type="button" variant="outline" onClick={() => void api.get(id).then((latest) => setSession((s) => ({ ...s, latest }))).catch(setError)}>重新获取服务器内容</Button>}
     </div>}
-    <form className="space-y-6" noValidate onSubmit={(e) => { e.preventDefault(); if (!busy && !session.conflict) save.mutate(); }}>
       <Tabs.Root value={tab} onValueChange={setTab}>
         <Tabs.List aria-label="版本设置" className="mb-6 flex gap-6 border-b">
           <Tabs.Trigger value="basic" disabled={busy} className="-mb-px border-b border-transparent px-1 pb-3 text-sm font-medium text-muted-foreground data-[state=active]:border-primary data-[state=active]:text-foreground focus-visible:outline-2 focus-visible:outline-ring disabled:opacity-50">基本信息</Tabs.Trigger>
           <Tabs.Trigger value="package" disabled={busy} className="-mb-px border-b border-transparent px-1 pb-3 text-sm font-medium text-muted-foreground data-[state=active]:border-primary data-[state=active]:text-foreground focus-visible:outline-2 focus-visible:outline-ring disabled:opacity-50">安装包</Tabs.Trigger>
+          {app.id === "buaa-classhopper" && <Tabs.Trigger value="whitelist" disabled={busy || !session.saved} title={!session.saved ? "请先保存版本" : undefined} className="-mb-px border-b border-transparent px-1 pb-3 text-sm font-medium text-muted-foreground data-[state=active]:border-primary data-[state=active]:text-foreground focus-visible:outline-2 focus-visible:outline-ring disabled:opacity-50">白名单</Tabs.Trigger>}
         </Tabs.List>
+        <form className="space-y-6" hidden={tab === "whitelist"} noValidate onSubmit={(e) => { e.preventDefault(); if (!busy && !session.conflict) save.mutate(); }}>
         <Tabs.Content value="basic" className="space-y-6">
           <fieldset disabled={busy} className="min-w-0 space-y-6">
             <div className="space-y-2"><Label htmlFor="version-number">版本号</Label><Input id="version-number" className="max-w-sm" placeholder="1.4.1" value={session.draft.version} readOnly={Boolean(session.saved)} required onChange={(e) => change("version", e.target.value)} /></div>
@@ -121,8 +123,9 @@ function Editor({ initial, id }: { initial: AppVersion | null; id: string }) {
             <div className="space-y-2"><Label htmlFor="package-sha256">SHA-256</Label><Input id="package-sha256" maxLength={64} value={session.draft.sha256} onChange={(e) => change("sha256", e.target.value)} /></div>
           </fieldset>
         </Tabs.Content>
+          {tab !== "whitelist" && <EditorActions><Button type="submit" disabled={busy || session.conflict || (Boolean(session.saved) && !dirty(session))}>{save.isPending || uploading ? "保存中…" : "保存版本"}</Button></EditorActions>}
+        </form>
+        {app.id === "buaa-classhopper" && session.saved && <Tabs.Content value="whitelist"><VersionWhitelist version={session.saved.version} /></Tabs.Content>}
       </Tabs.Root>
-      <EditorActions><Button type="submit" disabled={busy || session.conflict || (Boolean(session.saved) && !dirty(session))}>{save.isPending || uploading ? "保存中…" : "保存版本"}</Button></EditorActions>
-    </form>
   </div>;
 }
