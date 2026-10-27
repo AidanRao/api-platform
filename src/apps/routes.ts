@@ -1,3 +1,4 @@
+import { createIclassRoutes } from "../domains/buaa-classhopper/iclass/routes";
 import { createAppAdsRoutes, createPublicAdsRoutes } from "../features/ads/routes";
 import { Hono } from "hono";
 import type { AppEnv } from "../http/types";
@@ -25,6 +26,7 @@ export function mountAppRoutes(router: Hono<AppEnv>, apps: readonly AppDefinitio
 
     // BUAA-specific capabilities are mounted only for this registered App.
     if (app.id === "buaa-classhopper") {
+      publicRoutes.route("/v1/iclass", createIclassRoutes(now, verifySso));
       publicRoutes.route("/", createPublicBuaaClasshopperRoutes());
       adminRoutes.route("/", createAdminBuaaClasshopperRoutes(now));
       adminRoutes.route("/reservations", createAdminReservationRoutes(now));
