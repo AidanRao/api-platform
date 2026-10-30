@@ -25,6 +25,7 @@ export const createReservationSchema = z.object({
 
 const pageNumber = z.string().regex(/^[1-9]\d*$/).transform(Number).pipe(z.number().int().max(1_000_000));
 export const reservationStatusSchema = z.enum(["QUEUED", "IN_PROGRESS", "SUCCESS", "FAILED", "CANCELLED"]);
+export const courseDateSchema = z.iso.date();
 export const reservationQuerySchema = z.object({
   page: pageNumber.default(1),
   pageSize: z.string().regex(/^[1-9]\d*$/).transform(Number).pipe(z.number().int().max(100)).default(10),
@@ -33,6 +34,7 @@ export const adminReservationQuerySchema = reservationQuerySchema.extend({
   studentId: z.string().trim().min(1).max(128).optional(),
   search: z.string().trim().min(1).max(200).optional(),
   status: reservationStatusSchema.optional(),
+  courseDate: courseDateSchema.optional(),
 });
 export type CreateReservation = z.infer<typeof createReservationSchema>;
 export type ReservationQuery = z.infer<typeof reservationQuerySchema>;

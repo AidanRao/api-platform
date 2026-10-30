@@ -1,4 +1,4 @@
-import { cleanup, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -127,7 +127,7 @@ describe("reservation management", () => {
     ]);
   });
 
-  it("applies search and status filters and preserves them across pages", async () => {
+  it("combines course date, search and status, restores the URL and resets pagination", async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const params = new URL(String(input), "https://example.com").searchParams;
       return ok({ items: [{ ...reservation, status: params.get("status") || "QUEUED" }],
@@ -135,8 +135,15 @@ describe("reservation management", () => {
     });
     vi.stubGlobal("fetch", fetchMock);
     const user = userEvent.setup();
-    const { router } = renderAdmin("/admin/buaa-classhopper/reservations");
+    const { router } = renderAdmin("/admin/buaa-classhopper/reservations?page=2&courseDate=2026-10-29");
     await screen.findByRole("button", { name: "查看用户详情：张三 - 23370001" });
+    expect((screen.getByLabelText("课程日期") as HTMLInputElement).value).toBe("2026-10-29");
+    fireEvent.change(screen.getByLabelText("课程日期"), { target: { value: "2026-10-30" } });
+    await waitFor(() => {
+      const query = new URLSearchParams(router.state.location.search);
+      expect(query.get("page")).toBe("1");
+      expect(query.get("courseDate")).toBe("2026-10-30");
+    });
     await user.type(screen.getByRole("searchbox", { name: "搜索预约" }), "张三");
     await user.click(screen.getByRole("button", { name: "搜索" }));
     await waitFor(() => expect(new URLSearchParams(router.state.location.search).get("search")).toBe("张三"));
@@ -147,10 +154,20 @@ describe("reservation management", () => {
     await waitFor(() => expect(new URLSearchParams(router.state.location.search).get("page")).toBe("2"));
     expect(fetchMock.mock.calls.some(([url]) => {
       const query = new URL(String(url), "https://example.com").searchParams;
-      return query.get("page") === "2" && query.get("search") === "张三" && query.get("status") === "SUCCESS";
+      return query.get("page") === "2" && query.get("search") === "张三" && query.get("status") === "SUCCESS"
+        && query.get("courseDate") === "2026-10-30";
     })).toBe(true);
+    fireEvent.change(screen.getByLabelText("课程日期"), { target: { value: "" } });
+    await waitFor(() => {
+      const query = new URLSearchParams(router.state.location.search);
+      expect(query.get("page")).toBe("1");
+      expect(query.get("courseDate")).toBeNull();
+      expect(query.get("search")).toBe("张三");
+      expect(query.get("status")).toBe("SUCCESS");
+    });
     await user.click(screen.getByRole("button", { name: "重置" }));
     expect(router.state.location.search).toBe("?page=1");
+    expect((screen.getByLabelText("课程日期") as HTMLInputElement).value).toBe("");
   });
 
   it("opens user and course details from their summary cells", async () => {

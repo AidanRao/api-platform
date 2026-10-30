@@ -4,10 +4,11 @@ import { createAdminClient } from "../../../platform/api";
 
 const request = createAdminClient("buaa-classhopper");
 
-export function listReservations(page: number, search: string, status: string, signal?: AbortSignal) {
+export function listReservations(page: number, search: string, status: string, courseDate: string, signal?: AbortSignal) {
   const params = new URLSearchParams({ page: String(page), pageSize: "10" });
   if (search) params.set("search", search);
   if (status) params.set("status", status);
+  if (courseDate) params.set("courseDate", courseDate);
   return request(`/reservations?${params}`, reservationPageSchema, { signal });
 }
 

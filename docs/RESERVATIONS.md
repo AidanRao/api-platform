@@ -90,7 +90,7 @@ Go 服务使用只读 Token 查询签到所需的 `loginName`、`course.id` 和�
 
 ## 管理员预约列表
 
-`GET /api/admin/buaa-classhopper/reservations?page=1&pageSize=10&search=高等数学&status=QUEUED` 使用 Cloudflare Access 管理员身份，返回本 App 所有用户的预约。`search` 可选，最长 200 字符，对预约 ID、用户姓名、学号和课程名称进行不区分英文字母大小写的包含匹配；`studentId` 仍可用于学号精确匹配。`status` 可选，可取 `QUEUED`、`IN_PROGRESS`、`SUCCESS`、`FAILED`、`CANCELLED`。这些条件可组合。默认每页 10 条，最大 100 条；按 `created_at DESC, id DESC` 排序，响应 `data` 为筛选后的 `{items,page,pageSize,total}`。管理页面 `/admin/buaa-classhopper/reservations` 在侧边栏的「签到预约」中展示记录，搜索、状态和页码都保存在 URL 中。学号精确匹配和状态筛选索引由 `0004_reservations_and_api_tokens.sql` 创建。
+`GET /api/admin/buaa-classhopper/reservations?page=1&pageSize=10&search=高等数学&status=QUEUED&courseDate=2026-10-30` 使用 Cloudflare Access 管理员身份，返回本 App 所有用户的预约。`search` 可选，最长 200 字符，对预约 ID、用户姓名、学号和课程名称进行不区分英文字母大小写的包含匹配；`studentId` 仍可用于学号精确匹配。`status` 可选，可取 `QUEUED`、`IN_PROGRESS`、`SUCCESS`、`FAILED`、`CANCELLED`。`courseDate` 可选，格式为 `YYYY-MM-DD`，按课程开始时间所属的北京时间日期精确匹配，范围包含当日零点、不包含次日零点；无效日期返回 400。这些条件可组合。默认每页 10 条，最大 100 条；按 `created_at DESC, id DESC` 排序，响应 `data` 为筛选后的 `{items,page,pageSize,total}`。管理页面 `/admin/buaa-classhopper/reservations` 在侧边栏的「签到预约」中展示记录，搜索、状态、课程日期和页码都保存在 URL 中。学号精确匹配和状态筛选索引由 `0004_reservations_and_api_tokens.sql` 创建。
 
 管理员可对任意记录调用相同后缀的 `POST /api/admin/buaa-classhopper/reservations/{id}/cancel`、`POST .../{id}/restore` 和 `DELETE .../{id}`。`POST .../{id}/checkin` 将待处理或失败预约的原定时任务提前到现在执行，仅在课程结束前可用；请求返回更新后的预约，签到结果随后由 Workflow 保存。管理页面提供对应操作及永久删除确认。
 

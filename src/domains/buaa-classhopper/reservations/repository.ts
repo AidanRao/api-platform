@@ -84,6 +84,12 @@ export class ReservationRepository {
       values.push(query.search, query.search, query.search, query.search);
     }
     if (query.status) { conditions.push("status = ?"); values.push(query.status); }
+    if (query.courseDate) {
+      const start = new Date(`${query.courseDate}T00:00:00+08:00`);
+      const end = new Date(start.getTime() + 24 * 60 * 60_000);
+      conditions.push("json_extract(course_json, '$.classBeginTime') >= ? AND json_extract(course_json, '$.classBeginTime') < ?");
+      values.push(start.toISOString(), end.toISOString());
+    }
     const where = conditions.length ? ` WHERE ${conditions.join(" AND ")}` : "";
     const countStatement = this.db.prepare(`SELECT COUNT(*) AS total FROM buaa_classhopper_reservations${where}`);
     const [count, page] = await this.db.batch<Record<string, unknown>>([

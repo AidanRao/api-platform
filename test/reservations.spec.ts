@@ -309,6 +309,43 @@ describe("reservations and API tokens", () => {
     expect((await createApp().request(`https://example.com${reservationAdmin}`, undefined, env)).status).toBe(401);
   });
 
+  it("filters course start dates by Shanghai midnight boundaries with combined filters and pagination", async () => {
+    const courseDate = new Date(classBegin.getTime() + 8 * 60 * 60_000).toISOString().slice(0, 10);
+    const start = Date.parse(`${courseDate}T00:00:00+08:00`);
+    const end = start + 24 * 60 * 60_000;
+    const ids: string[] = [];
+    for (const [index, time] of [start - 1, start, end - 1, end].entries()) {
+      const response = await call(base, "POST", { ...input, course: {
+        ...course, id: 20000 + index, classBeginTime: new Date(time).toISOString(),
+        classEndTime: new Date(time + 90 * 60_000).toISOString(),
+      } });
+      expect(response.status).toBe(201);
+      ids.push((await data<{ id: string }>(response)).id);
+    }
+    const filtered = await data<{ items: { id: string }[]; total: number }>(
+      await call(`${reservationAdmin}?courseDate=${courseDate}`));
+    expect(filtered.total).toBe(2);
+    expect(new Set(filtered.items.map((item) => item.id))).toEqual(new Set([ids[1], ids[2]]));
+    const page1 = await data<{ items: { id: string }[]; total: number }>(
+      await call(`${reservationAdmin}?courseDate=${courseDate}&pageSize=1`));
+    const page2 = await data<{ items: { id: string }[]; total: number }>(
+      await call(`${reservationAdmin}?courseDate=${courseDate}&pageSize=1&page=2`));
+    expect(page1.total).toBe(2);
+    expect(page2.total).toBe(2);
+    expect([...page1.items, ...page2.items]).toEqual(filtered.items);
+    await env.API_PLATFORM_DB.prepare("UPDATE buaa_classhopper_reservations SET status = 'SUCCESS' WHERE id = ?")
+      .bind(ids[1]).run();
+    const combined = await data<{ items: { id: string }[]; total: number }>(await call(
+      `${reservationAdmin}?courseDate=${courseDate}&search=${encodeURIComponent("高等")}&studentId=23370001&status=SUCCESS`));
+    expect(combined).toMatchObject({ total: 1, items: [{ id: ids[1] }] });
+    const empty = await data<{ items: unknown[]; total: number }>(await call(
+      `${reservationAdmin}?courseDate=${courseDate}&status=FAILED`));
+    expect(empty).toMatchObject({ total: 0, items: [] });
+    for (const invalid of ["", "2026-02-30", "2026-02-29", "2026-13-01", "2026-1-01", "2026-10-30T00:00:00Z"]) {
+      expect((await call(`${reservationAdmin}?courseDate=${invalid}`)).status).toBe(400);
+    }
+  });
+
   it("issues a one-time token, scopes it to the app, and revokes it", async () => {
     const created = await call(base, "POST", input);
     const reservation = await data<{ id: string }>(created);

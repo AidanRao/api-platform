@@ -4,7 +4,7 @@ import { ChevronRight, CircleCheck, CircleX, Ellipsis, Search } from "lucide-rea
 import { useSearchParams } from "react-router";
 import { DropdownMenu } from "radix-ui";
 
-import { reservationStatusSchema, type Reservation, type ReservationEvent } from "../../../../../src/domains/buaa-classhopper/reservations/schema";
+import { courseDateSchema, reservationStatusSchema, type Reservation, type ReservationEvent } from "../../../../../src/domains/buaa-classhopper/reservations/schema";
 import { useApplication } from "../../../platform/AppContext";
 import { ErrorNotice, Loading, useToast } from "../../../platform/feedback";
 import { resourceKey } from "../../../platform/query";
@@ -107,7 +107,7 @@ function ReservationTimeline({ item, appId }: { item: Reservation; appId: string
         : "border-primary text-primary ring-primary/10";
   return <div className="space-y-6">
     <div className="flex flex-wrap items-center justify-between gap-2">
-      <p className="text-xs text-muted-foreground">最新进度在上方 · 北京时间</p>
+      <p className="text-xs text-muted-foreground">最新进度在上方（北京时间）</p>
       <Badge variant="outline" className={statusStyles[item.status]}>{statusNames[item.status]}</Badge>
     </div>
     {nodes.length ? <ol>
@@ -166,28 +166,31 @@ export default function Reservations() {
   const search = params.get("search")?.trim() ?? "";
   const parsedStatus = reservationStatusSchema.safeParse(params.get("status"));
   const status = parsedStatus.success ? parsedStatus.data : "";
+  const parsedCourseDate = courseDateSchema.safeParse(params.get("courseDate"));
+  const courseDate = parsedCourseDate.success ? parsedCourseDate.data : "";
   const [searchInput, setSearchInput] = useState(search);
   const [detail, setDetail] = useState<{ item: Reservation; section: "user" | "course" | "flow" } | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Reservation | null>(null);
   const [pendingId, setPendingId] = useState<string | null>(null);
   const supported = app.id === "buaa-classhopper";
   const list = useQuery({
-    queryKey: [...resourceKey(app.id, "reservations"), "list", { page, search, status }],
-    queryFn: ({ signal }) => listReservations(page, search, status, signal),
+    queryKey: [...resourceKey(app.id, "reservations"), "list", { page, search, status, courseDate }],
+    queryFn: ({ signal }) => listReservations(page, search, status, courseDate, signal),
     enabled: supported,
     refetchInterval: detail?.section === "flow" ? 5_000 : false,
   });
   useEffect(() => { setSearchInput(search); }, [search]);
-  const filterParams = (nextPage: number, nextSearch = search, nextStatus = status) => ({
+  const filterParams = (nextPage: number, nextSearch = search, nextStatus = status, nextCourseDate = courseDate) => ({
     page: String(nextPage),
     ...(nextSearch ? { search: nextSearch } : {}),
     ...(nextStatus ? { status: nextStatus } : {}),
+    ...(nextCourseDate ? { courseDate: nextCourseDate } : {}),
   });
   useEffect(() => {
     if (list.data && page > 1 && list.data.items.length === 0) {
       setParams(filterParams(Math.max(1, Math.ceil(list.data.total / 10))), { replace: true });
     }
-  }, [list.data, page, search, status, setParams]);
+  }, [list.data, page, search, status, courseDate, setParams]);
   if (!supported) return <h1 className="text-2xl font-semibold">页面或应用不存在</h1>;
   const updatePage = (next: number) => setParams(filterParams(next));
   async function act(item: Reservation, action: "cancel" | "restore" | "checkin" | "delete") {
@@ -211,12 +214,18 @@ export default function Reservations() {
       setParams(filterParams(1, searchInput.trim()));
     }}>
       <div className="relative min-w-64 flex-1"><Label htmlFor="reservation-search" className="sr-only">搜索预约</Label><Search aria-hidden="true" className="absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" /><Input id="reservation-search" type="search" className="bg-background pl-9" maxLength={200} value={searchInput} onChange={(event) => setSearchInput(event.target.value)} placeholder="预约 ID、用户姓名、学号或课程名称" /></div>
+      <div className="relative w-40 shrink-0">
+        <Label htmlFor="reservation-course-date" className="sr-only">课程日期</Label>
+        <Input id="reservation-course-date" type="date" className={`bg-background ${courseDate ? "" : "[&::-webkit-datetime-edit]:invisible"}`} value={courseDate}
+          onChange={(event) => setParams(filterParams(1, searchInput.trim(), status, event.target.value))} />
+        {!courseDate && <span aria-hidden="true" className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-sm text-muted-foreground">课程日期</span>}
+      </div>
       <Label htmlFor="reservation-status" className="sr-only">状态</Label><Select value={status || "all"} onValueChange={(value) => setParams(filterParams(1, searchInput.trim(), value === "all" ? "" : value))}>
         <SelectTrigger id="reservation-status" className="w-36 bg-background" aria-label="状态"><SelectValue /></SelectTrigger>
         <SelectContent><SelectItem value="all">全部状态</SelectItem>{Object.entries(statusNames).map(([value, label]) => <SelectItem key={value} value={value}>{label}</SelectItem>)}</SelectContent>
       </Select>
       <Button type="submit">搜索</Button>
-      {(search || status) && <Button type="button" variant="ghost" onClick={() => setParams({ page: "1" })}>重置</Button>}
+      {(search || status || courseDate) && <Button type="button" variant="ghost" onClick={() => setParams({ page: "1" })}>重置</Button>}
     </form>
     {list.isPending ? <Loading /> : list.isError ? <><ErrorNotice error={list.error} /><Button variant="outline" onClick={() => void list.refetch()}>重试</Button></> : <>
       <div className="overflow-hidden rounded-xl border bg-background"><Table className="min-w-[900px]"><TableHeader className="bg-muted/35"><TableRow>
@@ -250,11 +259,11 @@ export default function Reservations() {
         </TableRow>)}
         {list.data.items.length === 0 && <TableRow><TableCell colSpan={6} className="h-32 text-center text-muted-foreground">暂无预约记录</TableCell></TableRow>}
       </TableBody></Table></div>
-      <div className="flex flex-wrap items-center justify-between gap-3"><span className="text-sm text-muted-foreground">共 {list.data.total} 条预约 · 第 {page} 页</span><div className="flex gap-2"><Button variant="outline" disabled={page <= 1} onClick={() => updatePage(page - 1)}>上一页</Button><Button variant="outline" disabled={page * 10 >= list.data.total} onClick={() => updatePage(page + 1)}>下一页</Button></div></div>
+      <div className="flex flex-wrap items-center justify-between gap-3"><span className="text-sm text-muted-foreground">共 {list.data.total} 条预约，第 {page} 页</span><div className="flex gap-2"><Button variant="outline" disabled={page <= 1} onClick={() => updatePage(page - 1)}>上一页</Button><Button variant="outline" disabled={page * 10 >= list.data.total} onClick={() => updatePage(page + 1)}>下一页</Button></div></div>
     </>}
     <AlertDialog open={deleteTarget !== null} onOpenChange={(open) => { if (!open) setDeleteTarget(null); }}><AlertDialogContent><AlertDialogHeader><AlertDialogTitle>永久删除预约？</AlertDialogTitle><AlertDialogDescription>预约 {deleteTarget?.id} 将从记录中移除，无法恢复。</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel>取消</AlertDialogCancel><AlertDialogAction variant="destructive" onClick={() => { if (deleteTarget) void act(deleteTarget, "delete"); }}>确认删除</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>
     <Sheet open={detail !== null} onOpenChange={(open) => { if (!open) setDetail(null); }}><SheetContent className="w-full overflow-y-auto sm:max-w-md">
-      {detail && <><SheetHeader className="border-b px-6 py-6 pr-12"><SheetTitle>{detail.section === "user" ? "用户详情" : detail.section === "course" ? "课程详情" : "签到流程"}</SheetTitle><SheetDescription className="break-all">预约 ID · {detail.item.id}</SheetDescription></SheetHeader>
+      {detail && <><SheetHeader className="border-b px-6 py-6 pr-12"><SheetTitle>{detail.section === "user" ? "用户详情" : detail.section === "course" ? "课程详情" : "签到流程"}</SheetTitle><SheetDescription className="break-all">预约 ID：{detail.item.id}</SheetDescription></SheetHeader>
         {detail.section === "flow" ? <div className="px-6 py-6"><ReservationTimeline
           item={list.data?.items.find((item) => item.id === detail.item.id) ?? detail.item} appId={app.id} /></div> : <div className="space-y-6 px-6 py-2">
           <div><p className="text-lg font-semibold">{detail.section === "user" ? `${detail.item.studentName || "未填写姓名"} - ${detail.item.studentId}` : detail.item.course.courseName}</p><p className="mt-1 text-sm text-muted-foreground">{detail.section === "user" ? "预约用户信息" : classTime(detail.item)}</p></div>
