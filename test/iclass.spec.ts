@@ -1,8 +1,10 @@
 import { env } from "cloudflare:workers";
-import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
+import { beforeAll, beforeEach, afterEach, describe, expect, it, vi } from "vitest";
+import migration from "../migrations/0004_reservations_and_api_tokens.sql?raw";
 import { createApp } from "../src/app";
 import { ApiError } from "../src/http/errors";
 import { IclassAuthorizationRepository } from "../src/domains/buaa-classhopper/iclass/repository";
+import { ReservationRepository } from "../src/domains/buaa-classhopper/reservations/repository";
 import { signCheckinBody } from "../src/infrastructure/hmac";
 
 const base = "/api/buaa-classhopper/v1/iclass";
@@ -69,7 +71,12 @@ const json = async (response: Response) =>
   }>;
 const authorize = () =>
   call("/authorization", "PUT", { loginName: "sensitive-loginName" });
+beforeAll(async () => {
+  await env.API_PLATFORM_DB.batch(migration.split(";").filter((sql) => sql.trim())
+    .map((sql) => env.API_PLATFORM_DB.prepare(sql)));
+});
 beforeEach(async () => {
+  await env.API_PLATFORM_DB.prepare("DELETE FROM buaa_classhopper_reservations").run();
   const repo = new IclassAuthorizationRepository(env.API_PLATFORM_KV);
   await Promise.all([repo.remove("user-1"), repo.remove("user-2")]);
   await Promise.all(
@@ -82,7 +89,90 @@ beforeEach(async () => {
     vi.fn(async () => reply([course])),
   );
 });
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  vi.unstubAllGlobals();
+  vi.restoreAllMocks();
+});
+
+async function reservation(status: string, userId = "user-1", loginName = "sensitive-loginName", scheduleId = course.courseScheduleId) {
+  await env.API_PLATFORM_DB.prepare(`INSERT INTO buaa_classhopper_reservations
+    (id, user_id, login_name, student_id, course_schedule_id, course_json, status, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+    .bind(crypto.randomUUID(), userId, loginName, "student-1", scheduleId,
+      JSON.stringify({ courseId: course.courseId, courseName: course.courseName,
+        courseNum: course.courseNum, classroomName: course.classroomName.join("、"),
+        classBeginTime: "2026-10-27T01:50:00Z", classEndTime: "2026-10-27T02:35:00Z" }),
+      status, clock.toISOString(), clock.toISOString()).run();
+}
+
+describe("schedule reservation flags", () => {
+  it.each([
+    ["QUEUED", true], ["IN_PROGRESS", true], ["CANCELLED", false],
+    ["FAILED", false], ["SUCCESS", false],
+  ])("marks %s reservations as isReserved=%s", async (status, isReserved) => {
+    await authorize();
+    await reservation(String(status));
+    const response = await call("/course-schedules?date=2026-10-27");
+    expect(response.status).toBe(200);
+    expect((await json(response)).data.items).toEqual([{ ...course, isReserved }]);
+  });
+
+  it("returns explicit false without a reservation and preserves an empty schedule", async () => {
+    await authorize();
+    expect((await json(await call("/course-schedules?date=2026-10-27"))).data.items)
+      .toEqual([{ ...course, isReserved: false }]);
+    vi.mocked(fetch).mockResolvedValueOnce(reply([]));
+    expect((await json(await call("/course-schedules?date=2026-10-27"))).data.items).toEqual([]);
+  });
+
+  it("matches user, authorized account and original schedule ID without merging rows", async () => {
+    await authorize();
+    await reservation("QUEUED", "user-2");
+    await reservation("IN_PROGRESS", "user-1", "another-account");
+    await reservation("QUEUED", "user-1", "sensitive-loginName", "original-2");
+    vi.mocked(fetch).mockResolvedValueOnce(reply([course, { ...course, courseScheduleId: "original-2" }]));
+    const lookup = vi.spyOn(ReservationRepository.prototype, "activeCourseScheduleIds");
+    expect((await json(await call("/course-schedules?date=2026-10-27"))).data.items).toEqual([
+      { ...course, isReserved: false },
+      { ...course, courseScheduleId: "original-2", isReserved: true },
+    ]);
+    expect(lookup).toHaveBeenCalledExactlyOnceWith("user-1", "sensitive-loginName");
+    await call("/authorization", "PUT", { loginName: "sensitive-loginName" }, "user-2");
+    expect((await json(await call("/course-schedules?date=2026-10-27", "GET", undefined, "user-2"))).data.items)
+      .toEqual([{ ...course, isReserved: true }]);
+    await call("/authorization", "PUT", { loginName: "another-account" });
+    expect((await json(await call("/course-schedules?date=2026-10-27"))).data.items)
+      .toEqual([{ ...course, isReserved: true }]);
+  });
+
+  it("preserves signed status alongside an active reservation", async () => {
+    await authorize();
+    await reservation("QUEUED");
+    vi.mocked(fetch).mockResolvedValueOnce(reply([{ ...course, signStatus: 1 }]));
+    expect((await json(await call("/course-schedules?date=2026-10-27"))).data.items)
+      .toEqual([{ ...course, signStatus: 1, isReserved: true }]);
+  });
+
+  it("rejects an authorization change during the reservation lookup", async () => {
+    await authorize();
+    vi.spyOn(ReservationRepository.prototype, "activeCourseScheduleIds").mockImplementationOnce(async () => {
+      await new IclassAuthorizationRepository(env.API_PLATFORM_KV).remove("user-1");
+      return new Set<string>();
+    });
+    const response = await call("/course-schedules?date=2026-10-27");
+    expect(response.status).toBe(403);
+    expect((await json(response)).data.reason).toBe("ICLASS_AUTHORIZATION_CHANGED");
+  });
+
+  it("fails the request instead of reporting unreserved when the database lookup fails", async () => {
+    await authorize();
+    vi.spyOn(ReservationRepository.prototype, "activeCourseScheduleIds")
+      .mockRejectedValueOnce(new Error("database unavailable"));
+    const response = await call("/course-schedules?date=2026-10-27");
+    expect(response.status).toBe(500);
+    expect((await json(response)).code).toBe(0);
+  });
+});
 
 describe("iClass user authorization, schedules and immediate sign-in", () => {
   it("requires SSO and never exposes credentials", async () => {

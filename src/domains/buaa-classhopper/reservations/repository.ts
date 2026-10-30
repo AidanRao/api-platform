@@ -41,6 +41,14 @@ function eventJson(kind: ReservationEvent["kind"], scheduleVersion: number, occu
 export class ReservationRepository {
   constructor(private readonly db: D1Database, private readonly idGenerator = generatePublicId) {}
 
+  async activeCourseScheduleIds(userId: string, loginName: string) {
+    const rows = await this.db.prepare(`SELECT course_schedule_id AS courseScheduleId
+      FROM buaa_classhopper_reservations
+      WHERE user_id = ? AND login_name = ? AND status IN ('QUEUED', 'IN_PROGRESS')`)
+      .bind(userId, loginName).all<{ courseScheduleId: string }>();
+    return new Set(rows.results.map((row) => row.courseScheduleId));
+  }
+
   async get(id: string) {
     const row = await this.db.prepare(`SELECT ${columns} FROM buaa_classhopper_reservations WHERE id = ?`)
       .bind(id).first<Row>();

@@ -4,16 +4,19 @@ import {
   type AuthorizationRow,
 } from "./repository";
 import { courseTime, shanghaiDate } from "./schema";
+import { ReservationRepository } from "../reservations/repository";
 
 export class IclassService {
   readonly repository: IclassAuthorizationRepository;
   private readonly client: IclassClient;
+  private readonly reservations: ReservationRepository;
   constructor(
     env: Env,
     private readonly now: () => Date,
   ) {
     this.repository = new IclassAuthorizationRepository(env.API_PLATFORM_KV);
     this.client = new IclassClient(env, now);
+    this.reservations = new ReservationRepository(env.API_PLATFORM_DB);
   }
   async authorization(userId: string) {
     const row = await this.repository.get(userId);
@@ -48,8 +51,15 @@ export class IclassService {
   }
   async schedules(userId: string, date: string) {
     const row = await this.credentials(userId);
-    const items = await this.client.schedule(row.login_name, date);
+    const [courses, reservedIds] = await Promise.all([
+      this.client.schedule(row.login_name, date),
+      this.reservations.activeCourseScheduleIds(userId, row.login_name),
+    ]);
     await this.unchanged(userId, row);
+    const items = courses.map((course) => ({
+      ...course,
+      isReserved: reservedIds.has(course.courseScheduleId),
+    }));
     return { date, serverTime: this.now().toISOString(), items };
   }
   async sign(
