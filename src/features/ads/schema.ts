@@ -174,6 +174,11 @@ export const placementSchema = placementCreateSchema.extend({
   appId: id,
   ...metadata,
 });
+export const placementFiltersSchema = z.object({
+  campaigns: z.array(campaignSchema.pick({ id: true, name: true })),
+  creatives: z.array(creativeSchema.pick({ id: true, name: true })),
+  slots: z.array(slotSchema.pick({ slotKey: true, name: true })),
+});
 export const pageSchema = <T extends z.ZodType>(item: T) =>
   z.object({
     items: z.array(item),

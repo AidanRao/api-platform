@@ -4,7 +4,6 @@ import { useApplication } from "../../platform/AppContext";
 import { platformClient } from "../../platform/api";
 import { ErrorNotice, Loading } from "../../platform/feedback";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import {
   campaignSchema,
   creativeSchema,
@@ -14,8 +13,10 @@ import {
 } from "../../../../src/features/ads/schema";
 import { adBase, adKey, formatNames, pagePath, time } from "./shared";
 import { PlacementRow } from "./PlacementRow";
+import { PlacementFilters } from "./PlacementFilters";
 import { AdStatusBadge } from "./AdStatusBadge";
 import { SegmentedChoice } from "@/components/ui/segmented-choice";
+import "../../platform/resource-theme.css";
 const labels = {
   campaigns: "广告活动",
   creatives: "共享素材",
@@ -68,7 +69,7 @@ function AdsList({
     });
   const path = pagePath(scope, resource);
   return (
-    <div className="space-y-5">
+    <div className="resource-theme space-y-5">
       <header className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-2xl font-semibold">{labels[resource]}</h1>
         <Button asChild>
@@ -84,7 +85,7 @@ function AdsList({
           </Link>
         </Button>
       </header>
-      <div className="flex flex-wrap gap-3">
+      <div className="flex flex-wrap items-center gap-3">
         {(resource === "campaigns" || resource === "placements") && (
           <SegmentedChoice
             label="启用状态"
@@ -98,21 +99,7 @@ function AdsList({
             onChange={(enabled) => update("enabled", enabled)}
           />
         )}
-        {resource === "placements" &&
-          [
-            ["campaignId", "活动 ID"],
-            ["creativeId", "素材 ID"],
-            ["slotKey", "广告位标识"],
-          ].map(([key, label]) => (
-            <Input
-              key={key}
-              className="w-56"
-              aria-label={label}
-              placeholder={label}
-              value={params.get(key!) ?? ""}
-              onChange={(e) => update(key!, e.target.value)}
-            />
-          ))}
+        {resource === "placements" && scope && <PlacementFilters appId={scope} />}
       </div>
       {data.isPending ? (
         <Loading />
@@ -166,7 +153,7 @@ function AdsList({
                         {"publishedVersion" in item
                           ? (item.publishedVersion ?? "—")
                           : "format" in item
-                            ? `${formatNames[item.format]} · ${item.maxItems} 条`
+                            ? `${formatNames[item.format]} ${item.maxItems} 条`
                             : `${time(item.startsAt)} → ${time(item.endsAt)}`}
                       </td>
                       <td className="whitespace-nowrap p-3">
@@ -190,7 +177,7 @@ function AdsList({
           </div>
           <div className="flex items-center justify-between gap-3 text-sm">
             <span>
-              共 {data.data.total} 条 · 第 {page} 页
+              共 {data.data.total} 条，第 {page} 页
             </span>
             <div className="flex gap-2">
               <Button

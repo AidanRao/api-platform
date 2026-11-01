@@ -234,6 +234,13 @@ export function createAppAdsRoutes(appId: string, now: () => Date) {
     audit(c);
     return successResponse("已创建", value, 201);
   });
+  router.get("/placements/filters", async (c) =>
+    successResponse(
+      "获取成功",
+      await service(c, now).repo.placementFilters(appId),
+    ),
+  );
+  router.all("/placements/filters", () => methodNotAllowed("GET"));
   router.get("/placements/:id", async (c) =>
     successResponse(
       "获取成功",

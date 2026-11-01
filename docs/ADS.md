@@ -120,12 +120,15 @@ URL 最长 2048 字符，必须为绝对 URL；不允许首尾空白、控制字
 | `/api/admin/ads/creatives` | GET 列表、POST 创建；`/:id` GET/PATCH/DELETE；`/:id/versions` GET 历史；`/:id/versions/:version` GET 快照；`/:id/placements` GET 引用 |
 | `/api/admin/:appId/ads/slots` | GET 列表、POST 创建；`/:slotKey` GET/PATCH/DELETE |
 | `/api/admin/:appId/ads/placements` | GET 列表、POST 创建；`/:id` GET/PATCH/DELETE |
+| `/api/admin/:appId/ads/placements/filters` | GET 当前 App 现有投放关联的活动、素材和广告位筛选选项 |
 
 活动字段：`name,notes,enabled,startsAt,endsAt`。素材创建：`name,type,draft`；PATCH：`name,draft`，draft 是完整内容对象（保留字段名，保存时直接发布）。广告位创建：`slotKey,name,format,maxItems`；PATCH 不允许修改标识和类型。投放字段：`campaignId,slotKey,creativeId,targetUrl,priority,enabled,startsAt,endsAt`，App 始终来自请求路径。
 
 PATCH 仅更新传入字段；传 null 可移除时间边界/跳转地址，传省略字段则保留。删除请求体为 `{"revision":1}`。管理对象含 revision、createdAt、updatedAt；素材对象额外包含 draft、publishedVersion 和 published（当前快照或 null）。
 
 活动、投放列表支持 `enabled=true|false`；投放和引用列表还支持 `campaignId,creativeId,slotKey`。引用接口将路径对应的活动或素材作为不可覆盖的筛选条件。管理历史列表也支持分页。
+
+投放筛选选项在进入管理页面时加载，返回 `{campaigns:[{id,name}],creatives:[{id,name}],slots:[{slotKey,name}]}`。仅包含当前 App 现有投放引用的记录，去重并按名称排序；包括已停用或不在有效期内的投放，不受列表筛选和分页影响。不读取全平台活动、素材列表或未关联投放的广告位。
 
 示例：
 

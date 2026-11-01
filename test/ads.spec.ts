@@ -8,6 +8,7 @@ import { AdsRepository } from "../src/features/ads/repository";
 import {
   campaignPatchSchema,
   targetUrlSchema,
+  placementFiltersSchema,
   type Campaign,
   type Creative,
   type AdSlot,
@@ -127,6 +128,54 @@ beforeEach(async () => {
   now = new Date("2026-10-22T00:00:00.000Z");
 });
 describe("shared ads", () => {
+  it("loads only distinct references from the App's existing placements for filters", async () => {
+    const a = await campaign({ name: "A 活动", enabled: false });
+    const b = await campaign({ name: "B 活动", endsAt: "2020-01-01T00:00:00Z" });
+    const c = await creative({ name: "A 素材" });
+    const d = await creative({ name: "B 素材" });
+    const otherCampaign = await campaign({ name: "其他 App 活动" });
+    const otherCreative = await creative({ name: "其他 App 素材" });
+    await campaign({ name: "未使用活动" });
+    await creative({ name: "未使用素材" });
+    await slot();
+    await slot("buaa-classhopper", { slotKey: "all", name: "另一广告位" });
+    await slot("buaa-classhopper", { slotKey: "unused", name: "未使用广告位" });
+    await slot("second-app", { name: "其他 App 首页" });
+    await placement(otherCampaign, otherCreative, "second-app");
+    const first = await placement(a, c, undefined, { enabled: false });
+    const duplicate = await placement(a, c);
+    await placement(b, d, undefined, { slotKey: "all" });
+
+    const response = await request(`${scoped()}/placements/filters?enabled=true&campaignId=${b.id}&pageSize=1`);
+    expect(response.headers.get("Cache-Control")).toBe("no-store");
+    const filters = placementFiltersSchema.parse(await read(response));
+    expect(filters).toEqual({
+      campaigns: [{ id: a.id, name: a.name }, { id: b.id, name: b.name }],
+      creatives: [{ id: c.id, name: c.name }, { id: d.id, name: d.name }],
+      slots: [{ slotKey: "home", name: "首页" }, { slotKey: "all", name: "另一广告位" }]
+        .sort((x, y) => x.name < y.name ? -1 : 1),
+    });
+    expect(await request(`${scoped()}/placements/filters`, "POST").then((r) => r.status)).toBe(405);
+    expect(await request(`${scoped("unknown")}/placements/filters`).then((r) => r.status)).toBe(404);
+    const deniedApp = createApp();
+    expect((await deniedApp.request(`https://example.com${scoped()}/placements/filters`, {}, testEnv)).status).toBe(401);
+
+    await request(`${scoped()}/placements/${first.id}`, "DELETE", { revision: first.revision }).then(read);
+    await request(`${scoped()}/placements/${duplicate.id}`, "DELETE", { revision: duplicate.revision }).then(read);
+    const afterDelete = await request(`${scoped()}/placements/filters`).then(read);
+    expect(afterDelete).toEqual({
+      campaigns: [{ id: b.id, name: b.name }],
+      creatives: [{ id: d.id, name: d.name }],
+      slots: [{ slotKey: "all", name: "另一广告位" }],
+    });
+    await env.API_PLATFORM_DB.prepare("DELETE FROM ad_placements WHERE app_id=?").bind("buaa-classhopper").run();
+    expect(await request(`${scoped()}/placements/filters`).then(read)).toEqual({ campaigns: [], creatives: [], slots: [] });
+    expect(await request(`${scoped("second-app")}/placements/filters`).then(read)).toEqual({
+      campaigns: [{ id: otherCampaign.id, name: otherCampaign.name }],
+      creatives: [{ id: otherCreative.id, name: otherCreative.name }],
+      slots: [{ slotKey: "home", name: "其他 App 首页" }],
+    });
+  });
   it("publishes on create and save across Apps, and retains immutable history", async () => {
     const a = await campaign();
     let c = await creative();

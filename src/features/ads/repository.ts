@@ -4,6 +4,7 @@ import {
   creativeSchema,
   slotSchema,
   placementSchema,
+  placementFiltersSchema,
   versionSchema,
   type Campaign,
   type Creative,
@@ -388,6 +389,33 @@ export class AdsRepository {
         ).run()
       ).meta.changes > 0
     );
+  }
+  async placementFilters(appId: string) {
+    const [campaigns, creatives, slots] = await this.db.batch<Row>([
+      this.statement(
+        `SELECT DISTINCT a.id,a.name FROM ad_placements p
+        JOIN ad_campaigns a ON a.id=p.campaign_id
+        WHERE p.app_id=? ORDER BY a.name,a.id`,
+        [appId],
+      ),
+      this.statement(
+        `SELECT DISTINCT c.id,c.name FROM ad_placements p
+        JOIN ad_creatives c ON c.id=p.creative_id
+        WHERE p.app_id=? ORDER BY c.name,c.id`,
+        [appId],
+      ),
+      this.statement(
+        `SELECT DISTINCT s.slot_key AS slotKey,s.name FROM ad_placements p
+        JOIN ad_slots s ON s.app_id=p.app_id AND s.slot_key=p.slot_key
+        WHERE p.app_id=? ORDER BY s.name,s.slot_key`,
+        [appId],
+      ),
+    ]);
+    return placementFiltersSchema.parse({
+      campaigns: campaigns!.results,
+      creatives: creatives!.results,
+      slots: slots!.results,
+    });
   }
   async delivery(appId: string, key: string, now: string) {
     const [slots, items] = await this.db.batch<Row>([

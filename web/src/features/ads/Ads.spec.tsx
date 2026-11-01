@@ -173,6 +173,13 @@ beforeEach(() => {
         return ok(page([creative]));
       }
       if (path === "/api/admin/ads/campaigns") return ok(page([campaign]));
+      if (path.endsWith("/ads/placements/filters")) return ok(placementDeleted ? {
+        campaigns: [], creatives: [], slots: [],
+      } : {
+        campaigns: [{ id: campaign.id, name: campaign.name }],
+        creatives: [{ id: creative.id, name: creative.name }],
+        slots: [{ slotKey: slot.slotKey, name: slot.name }],
+      });
       if (path.endsWith("/ads/slots")) return ok(page([slot]));
       if (path.endsWith("/ads/placements"))
         return ok(page(placementDeleted ? [] : [placement]));
@@ -185,6 +192,76 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 describe("advertising administration", () => {
+  it("preloads named placement filters once per App and preserves other filters while resetting pages", async () => {
+    const user = userEvent.setup();
+    const { router } = renderAdmin("/admin/buaa-classhopper/ads/placements?page=3&enabled=false");
+    const filterUrl = "/api/admin/buaa-classhopper/ads/placements/filters";
+    await waitFor(() => expect((screen.getByRole("combobox", { name: "活动" }) as HTMLButtonElement).disabled).toBe(false));
+    const requests = () => vi.mocked(fetch).mock.calls.map(([url]) => String(url));
+    expect(requests().filter((url) => url === filterUrl)).toHaveLength(1);
+    expect(requests().some((url) => /^\/api\/admin\/ads\/(campaigns|creatives)\?/.test(url))).toBe(false);
+    expect(requests().some((url) => url.startsWith("/api/admin/buaa-classhopper/ads/slots?"))).toBe(false);
+    for (const [label, name, key, value] of [
+      ["活动", campaign.name, "campaignId", campaign.id],
+      ["素材", creative.name, "creativeId", creative.id],
+      ["广告位", slot.name, "slotKey", slot.slotKey],
+    ]) {
+      await user.click(screen.getByRole("combobox", { name: label }));
+      await user.click(await screen.findByRole("option", { name }));
+      const params = new URLSearchParams(router.state.location.search);
+      expect(params.get(key!)).toBe(value);
+      expect(params.get("enabled")).toBe("false");
+      expect(params.has("page")).toBe(false);
+    }
+    const combined = new URLSearchParams(router.state.location.search);
+    expect(Object.fromEntries(combined)).toEqual({ enabled: "false", campaignId: campaign.id, creativeId: creative.id, slotKey: slot.slotKey });
+    await waitFor(() => expect(requests().some((url) => {
+      const query = new URL(url, "https://local.test").searchParams;
+      return query.get("campaignId") === campaign.id && query.get("creativeId") === creative.id && query.get("slotKey") === slot.slotKey;
+    })).toBe(true));
+    await user.click(screen.getByRole("combobox", { name: "素材" }));
+    await user.click(await screen.findByRole("option", { name: "全部素材" }));
+    expect(Object.fromEntries(new URLSearchParams(router.state.location.search))).toEqual({ enabled: "false", campaignId: campaign.id, slotKey: slot.slotKey });
+    await act(() => router.navigate(`${router.state.location.pathname}${router.state.location.search}&page=2`));
+    expect(requests().filter((url) => url === filterUrl)).toHaveLength(1);
+
+    await act(() => router.navigate("/admin/second-app/ads/placements"));
+    await waitFor(() => expect(requests()).toContain("/api/admin/second-app/ads/placements/filters"));
+    await act(() => router.navigate("/admin/buaa-classhopper/ads/placements?campaignId=ADCA-1"));
+    await waitFor(() => expect(requests().filter((url) => url === filterUrl)).toHaveLength(2));
+    expect(screen.getByRole("combobox", { name: "活动" }).textContent).toBe(campaign.name);
+  });
+  it("retries failed filter loading without blocking the placement list", async () => {
+    const fetchImpl = vi.mocked(fetch).getMockImplementation()!;
+    let unavailable = true;
+    vi.mocked(fetch).mockImplementation(async (input, init) => {
+      if (String(input).endsWith("/placements/filters") && unavailable) return fail(502, "筛选选项加载失败");
+      return fetchImpl(input, init);
+    });
+    const user = userEvent.setup();
+    renderAdmin("/admin/buaa-classhopper/ads/placements");
+    expect(await screen.findByText("筛选选项加载失败")).toBeTruthy();
+    expect(await screen.findByRole("button", { name: "投放操作：ADPL-1" })).toBeTruthy();
+    unavailable = false;
+    await user.click(screen.getByRole("button", { name: "重新加载筛选" }));
+    await waitFor(() => expect((screen.getByRole("combobox", { name: "活动" }) as HTMLButtonElement).disabled).toBe(false));
+    await user.click(screen.getByRole("combobox", { name: "活动" }));
+    expect(await screen.findByRole("option", { name: campaign.name })).toBeTruthy();
+  });
+  it("keeps empty App filters clearable and supports a slot named all", async () => {
+    slot.slotKey = "all";
+    placement.slotKey = "all";
+    const user = userEvent.setup();
+    const { router, client } = renderAdmin("/admin/buaa-classhopper/ads/placements?slotKey=all");
+    await waitFor(() => expect(screen.getByRole("combobox", { name: "广告位" }).textContent).toBe(slot.name));
+    await user.click(screen.getByRole("combobox", { name: "广告位" }));
+    await user.click(await screen.findByRole("option", { name: "全部广告位" }));
+    expect(new URLSearchParams(router.state.location.search).has("slotKey")).toBe(false);
+    placementDeleted = true;
+    await act(() => client.invalidateQueries({ queryKey: ["ads"] }));
+    await user.click(screen.getByRole("combobox", { name: "活动" }));
+    expect(screen.getAllByRole("option").map((option) => option.textContent)).toEqual(["全部活动"]);
+  });
   it("keeps editor hierarchy and return links in the top bar across App and platform pages", async () => {
     const user = userEvent.setup();
     const { router } = renderAdmin("/admin/buaa-classhopper/ads/placements/ADPL-1");
