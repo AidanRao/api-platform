@@ -467,14 +467,19 @@ describe("reservations and API tokens", () => {
     const result = { reservationId: "r_123", attemptId: "r_123:1:1", status: "SUCCESS",
       code: 0, message: "ok", data: {} };
     const privateFetch = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) =>
-      Response.json({ code: 0, success: true, data: result }));
+      new URL(_input instanceof Request ? _input.url : String(_input)).pathname === "/readyz"
+        ? Response.json({ status: "ready", upstream: { iclass: "available" },
+          checkin: { limit: 4, running: 0, available: 4, accepting: true } })
+        : Response.json({ code: 0, success: true, data: result }));
     const config = { ENVIRONMENT: "production", ICLASS_SERVICE_BASE_URL: "http://localhost",
-      ICLASS_SERVICE_SECRET: "secret" } as const;
-    const checkin = createCheckinClient({ ...config, ICLASS_PRIVATE_API: { fetch: privateFetch } });
-    expect(await checkin(result.reservationId, result.attemptId)).toEqual(result);
-    expect(String(privateFetch.mock.calls[0]?.[0])).toBe("http://localhost/internal/checkin-executions");
-    expect(privateFetch.mock.calls[0]?.[1]?.method).toBe("POST");
-    expect(() => createCheckinClient(config)).toThrow("ICLASS_PRIVATE_API");
+      ICLASS_SERVICE_SECRET: "secret", ICLASS_SERVICE_BINDINGS: ["ICLASS_PRIVATE_API_ALIYUN"] } as const;
+    const checkin = createCheckinClient({ ...config, ICLASS_PRIVATE_API_ALIYUN: { fetch: privateFetch } });
+    expect(await checkin(result.reservationId, result.attemptId, "account-1")).toEqual(result);
+    const request = privateFetch.mock.calls[1]?.[0];
+    expect(request).toBeInstanceOf(Request);
+    expect((request as Request).url).toBe("http://localhost/internal/checkin-executions");
+    expect((request as Request).method).toBe("POST");
+    expect(() => createCheckinClient(config)).toThrow("ICLASS_PRIVATE_API_ALIYUN");
   });
 
   it("lets an owner cancel, restore, and permanently delete a reservation", async () => {

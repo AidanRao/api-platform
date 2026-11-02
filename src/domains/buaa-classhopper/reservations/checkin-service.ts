@@ -12,6 +12,7 @@ export async function executeCheckin(
   try {
     const response = await send(new URL("/internal/checkin-executions", serviceUrl), {
       method: "POST",
+      redirect: "manual",
       signal: AbortSignal.timeout(CHECKIN_TIMEOUT_SECONDS * 1000),
       headers: {
         "Content-Type": "application/json",

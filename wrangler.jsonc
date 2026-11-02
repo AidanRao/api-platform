@@ -66,6 +66,7 @@
 				"ACCESS_BYPASS_LOCAL": "false",
 				"SSO_ISSUER": "https://sso.aidanrao.top",
 				"ICLASS_SERVICE_BASE_URL": "http://localhost",
+				"ICLASS_SERVICE_BINDINGS": ["ICLASS_PRIVATE_API_ALIYUN", "ICLASS_PRIVATE_API_LAB"],
 				"OSS_BUCKET": "aidan-space",
 				"OSS_REGION": "cn-beijing",
 				"OSS_PREFIX": "api-platform"
@@ -78,8 +79,12 @@
 			],
 			"vpc_services": [
 				{
-					"binding": "ICLASS_PRIVATE_API",
+					"binding": "ICLASS_PRIVATE_API_ALIYUN",
 					"service_id": "01a11a50-2df6-77f1-b72f-b780c0b15646"
+				},
+				{
+					"binding": "ICLASS_PRIVATE_API_LAB",
+					"service_id": "01a19baa-9ede-7602-ad56-fc0b76a2ddbd"
 				}
 			],
 			"routes": [

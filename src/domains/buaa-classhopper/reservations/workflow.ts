@@ -66,7 +66,16 @@ export class IclassCheckinWorkflow extends WorkflowEntrypoint<CheckinEnv, Params
       console.info(JSON.stringify({ message: "check-in attempt started", reservationId, attemptId }));
       const resultJson = await step.do(`execute-${cycle}`, {
         retries: { limit: 0, delay: 1_000 }, timeout: (CHECKIN_TIMEOUT_SECONDS + 5) * 1000,
-      }, async () => JSON.stringify(await checkin(reservationId, attemptId)));
+      }, async () => {
+        // Read the account here so resumed workflows also work with older step snapshots.
+        const reservation = await repository.get(reservationId);
+        if (!reservation || reservation.scheduleVersion !== version || reservation.activeAttemptId !== attemptId ||
+          reservation.status !== "IN_PROGRESS") {
+          return JSON.stringify({ reservationId, attemptId, status: "FAILED", code: 409,
+            message: "预约执行状态已变化", data: {} });
+        }
+        return JSON.stringify(await checkin(reservationId, attemptId, reservation.loginName));
+      });
       const result = checkinResultSchema.parse(JSON.parse(resultJson));
       console.info(JSON.stringify({ message: "check-in attempt completed", reservationId, attemptId,
         status: result.status, code: result.code }));

@@ -18,9 +18,8 @@ export default defineConfig(({ command, mode }) => {
         persistState: {
           path: resolve(import.meta.dirname, ".wrangler/state"),
         },
-        config: (workerConfig) => ({
+        config: () => ({
           vars: {
-            ...workerConfig.vars,
             ...(isLocalRuntime ? { ENVIRONMENT: "development" } : {}),
             ACCESS_BYPASS_LOCAL: isLocalRuntime ? "true" : "false",
           },

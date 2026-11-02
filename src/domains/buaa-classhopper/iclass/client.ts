@@ -2,14 +2,9 @@ import { z } from "zod";
 import { ApiError } from "../../../http/errors";
 import { signCheckinBody } from "../../../infrastructure/hmac";
 import { courseSchema } from "./schema";
+import { IclassNodePool, type IclassNodeEnv } from "./node-pool";
 
-type ClientEnv = Pick<
-  Env,
-  | "ENVIRONMENT"
-  | "ICLASS_SERVICE_BASE_URL"
-  | "ICLASS_SERVICE_SECRET"
-  | "ICLASS_PRIVATE_API"
->;
+type ClientEnv = IclassNodeEnv;
 export const reasonError = (
   reason: string,
   message: string,
@@ -58,10 +53,12 @@ export class IclassClient {
     const {
       ICLASS_SERVICE_BASE_URL: base,
       ICLASS_SERVICE_SECRET: secret,
-      ICLASS_PRIVATE_API: binding,
     } = this.env;
-    if (!base || !secret || (this.env.ENVIRONMENT === "production" && !binding))
+    let pool: IclassNodePool;
+    try { pool = new IclassNodePool(this.env); }
+    catch {
       throw reasonError("ICLASS_UNAVAILABLE", "课表服务尚未配置", 503);
+    }
     const url = new URL(path, base);
     const body = method === "POST" ? JSON.stringify(input) : "";
     if (method === "GET")
@@ -84,9 +81,7 @@ export class IclassClient {
         redirect: "manual",
         signal: AbortSignal.timeout(25_000),
       });
-      response = await (this.env.ENVIRONMENT === "production"
-        ? binding!.fetch(request)
-        : fetch(request));
+      response = await pool.fetch(request, input.loginName!, method === "GET" ? "schedule" : "sign");
     } catch {
       throw reasonError(
         method === "POST" ? "SIGN_RESULT_UNKNOWN" : "ICLASS_NETWORK_ERROR",

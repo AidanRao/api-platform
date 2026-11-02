@@ -102,6 +102,44 @@ Go 服务使用只读 Token 查询签到所需的 `loginName`、`course.id` 和�
 
 部署前先应用数据库迁移 `0004_reservations_and_api_tokens.sql`。Worker 根环境的 `SSO_ISSUER` 指向测试 SSO，production 指向 `https://sso.aidanrao.top`；Android 所用 SSO OAuth 客户端须允许 `api-platform-buaa-classhopper` audience。SSO 的 `loginName`、`studentId` 和 `studentName` 没有在此接口中向 iClass 核验归属。
 
-本地 `ICLASS_SERVICE_BASE_URL` 在 `wrangler.jsonc` 顶层 `vars` 中指向 `http://127.0.0.1:8020`；执行 `cp .dev.vars.example .dev.vars`，把 `ICLASS_SERVICE_SECRET` 改成与本机 Go 服务相同的值，并确保 Go 进程实际监听 `:8020`。生产签到请求通过 `env.production.vpc_services` 中的 `ICLASS_PRIVATE_API` 进入 Cloudflare Tunnel，VPC Service 应指向 Go 服务器本机 `127.0.0.1:8020`，其 Service ID 已配置在 `wrangler.jsonc`。生产 `ICLASS_SERVICE_BASE_URL=http://localhost` 不负责路由，只提供 Host 和路径。生产密钥通过 `npx wrangler secret put ICLASS_SERVICE_SECRET --env production` 设置。Go 服务的 `API_PLATFORM_ACCESS_TOKEN` 只需 `reservations:read` 权限。生产构建采用 `CLOUDFLARE_ENV=production`，确保生成的 Wrangler 配置包含 VPC Service、`iclass-checkin` Workflow 绑定与每分钟修复触发器。两端应使用同步结果协议一同发布。
+本地 `ICLASS_SERVICE_BASE_URL` 在 `wrangler.jsonc` 顶层 `vars` 中指向 `http://127.0.0.1:8020`；执行 `cp .dev.vars.example .dev.vars`，把 `ICLASS_SERVICE_SECRET` 改成与本机 Go 服务相同的值，并确保 Go 进程实际监听 `:8020`。生产课表查询、直接签到和预约签到共用 VPC 节点池：在 `env.production.vpc_services` 声明节点，在 `env.production.vars.ICLASS_SERVICE_BINDINGS` 列出参与分发的绑定名称。当前配置 `ICLASS_PRIVATE_API_ALIYUN` 和 `ICLASS_PRIVATE_API_LAB` 两个节点，各自的 VPC Service 应指向对应 Go 实例。生产 `ICLASS_SERVICE_BASE_URL=http://localhost` 不负责路由，只提供 Host 和路径。生产密钥通过 `npx wrangler secret put ICLASS_SERVICE_SECRET --env production` 设置。Go 服务的 `API_PLATFORM_ACCESS_TOKEN` 只需 `reservations:read` 权限。生产构建采用 `CLOUDFLARE_ENV=production`，确保生成的 Wrangler 配置包含 VPC Service、`iclass-checkin` Workflow 绑定与每分钟修复触发器。两端应使用同步结果协议一同发布。
+
+### 多节点 VPC 配置
+
+当前节点与服务器的对应关系：
+
+| 服务器 | VPC 绑定 | Service ID |
+| --- | --- | --- |
+| aliyun | `ICLASS_PRIVATE_API_ALIYUN` | `01a11a50-2df6-77f1-b72f-b780c0b15646` |
+| lab | `ICLASS_PRIVATE_API_LAB` | `01a19baa-9ede-7602-ad56-fc0b76a2ddbd` |
+
+每个 Go 实例分别部署，通过 Tunnel 创建对应的 HTTP VPC Service。将真实 Service ID 和绑定名称加入 `wrangler.jsonc` 的 production 环境，例如下面的配置片段；合并到现有配置，保留其他变量和绑定：
+
+```jsonc
+"vars": {
+  "ICLASS_SERVICE_BASE_URL": "http://localhost",
+  "ICLASS_SERVICE_BINDINGS": ["ICLASS_PRIVATE_API_ALIYUN", "ICLASS_PRIVATE_API_LAB"]
+},
+"vpc_services": [
+  {
+    "binding": "ICLASS_PRIVATE_API_ALIYUN",
+    "service_id": "01a11a50-2df6-77f1-b72f-b780c0b15646"
+  },
+  {
+    "binding": "ICLASS_PRIVATE_API_LAB",
+    "service_id": "01a19baa-9ede-7602-ad56-fc0b76a2ddbd"
+  }
+]
+```
+
+`ICLASS_SERVICE_BINDINGS` 必须是非空、无重复的名称数组，每个名称必须对应有效的 VPC `fetch` 绑定。所有实例使用相同的 `ICLASS_SERVICE_SECRET`，指向同一个 API Platform；各自的只读 `API_PLATFORM_ACCESS_TOKEN` 须具有 `reservations:read` 权限。各节点独立配置校园网络或 VPN 访问，独立维护会话和预约并发容量，不需要公开服务域名。
+
+生产每次调用并行读取所有节点的 `/readyz`，单次探测最多 3 秒，不跨请求缓存状态。上游可用且响应结构有效的节点才参与分发。同一 `loginName` 使用 SHA-256 rendezvous hash 确定节点优先级；调整数组顺序不影响选点，增删节点仅使相关账号重新选点。绑定名称应保持稳定。预约签到跳过满载节点；预约容量不限制课表查询和直接签到。
+
+查询在网络故障、HTTP 5xx 或上游连接失败时可以切换节点；授权和参数错误直接返回。签到 POST 只有收到 `HTTP 503`、`success=false`、业务码 `1004` 的明确满载响应才会换节点，每个节点每轮最多提交一次。超时、断连、响应无效或结果未知时停止本轮分发。探测和切换共用客户端原有预算：查询和直接签到为 25 秒，预约执行为 60 秒。预约失败仍由 Workflow 按现有策略延迟重试；Go 执行预约时先查询签到状态。现有 KV 防重复和预约状态校验保持不变，没有跨实例严格幂等保证。
+
+节点探测响应限制为 16 KiB，业务响应限制为 4 MiB；读取响应体也受同一超时预算约束。结构化日志 `iclass node request` 包含 `node`、`operation`、`reason`、`durationMs`，不包含账号、密钥或 Cookie；可据此检查不可用节点、满载和切换情况。
+
+新增节点后运行 `npm run types`、类型检查、Worker 测试和 `npm run deploy:production:dry`，再按既有流程部署。移除节点时，从名称数组和 `vpc_services` 同时删除并重新部署，等待旧版本的在途请求结束后停止该实例。dry-run 只验证构建和绑定配置；真实双节点 VPC 连通性、故障切换和上游多会话行为仍需在部署后验收。
 
 本地排查实例时保持 `npm run dev` 运行，并使用 `npx wrangler workflows instances describe iclass-checkin <workflowInstanceId> --local --port 5173 --json`；不带 `--local` 会查询 Cloudflare 账号中的生产 Workflow。
