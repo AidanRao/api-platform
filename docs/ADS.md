@@ -1,6 +1,6 @@
 # 通用广告系统
 
-广告是平台通用能力。活动和素材全平台共享，广告位按 App 隔离，一条投放将活动、广告位与一份素材关联。所有注册 App 自动获得广告管理与公开读取接口。首版支持横幅、轮播、图文卡片、开屏，不包含第三方广告、埋点、统计、预算、用户定向或服务端频控。
+广告是平台通用能力。活动和素材全平台共享，广告位按 App 隔离，一条投放将活动、广告位与一份素材关联。所有注册 App 自动获得广告管理与公开读取接口。支持横幅、轮播、图文卡片、开屏，以及从 events 按需查询单投放统计；不包含第三方广告、预算、用户定向或服务端频控。广告事件继续由客户端通过已有 events SDK 上报。
 
 ## 管理流程
 
@@ -121,6 +121,7 @@ URL 最长 2048 字符，必须为绝对 URL；不允许首尾空白、控制字
 | `/api/admin/:appId/ads/slots` | GET 列表、POST 创建；`/:slotKey` GET/PATCH/DELETE |
 | `/api/admin/:appId/ads/placements` | GET 列表、POST 创建；`/:id` GET/PATCH/DELETE |
 | `/api/admin/:appId/ads/placements/filters` | GET 当前 App 现有投放关联的活动、素材和广告位筛选选项 |
+| `/api/admin/:appId/ads/placements/:id/metrics` | GET 指定投放的曝光、点击、点击率和每日统计 |
 
 活动字段：`name,notes,enabled,startsAt,endsAt`。素材创建：`name,type,draft`；PATCH：`name,draft`，draft 是完整内容对象（保留字段名，保存时直接发布）。广告位创建：`slotKey,name,format,maxItems`；PATCH 不允许修改标识和类型。投放字段：`campaignId,slotKey,creativeId,targetUrl,priority,enabled,startsAt,endsAt`，App 始终来自请求路径。
 
@@ -155,4 +156,26 @@ PATCH 仅更新传入字段；传 null 可移除时间边界/跳转地址，传�
 
 2026-10-23 调整：投放的活动/广告位摘要和选择器不再显示启停状态；广告位删除 enabled 字段；素材保存即发布并保留版本历史，未引用素材允许连同历史删除。类型检查、Worker/Web 回归测试、生产构建与 dry-run 均通过。迁移和运行验证仅在本地进行，未执行生产迁移或部署。
 
-当前仅返回稳定业务 ID 和发布版本供未来关联。没有广告事件收集端点、事件 ID、统计数据或对埋点系统的调用。
+## 单投放数据查询
+
+投放详情使用“基本信息”“投放数据”两个 Tab，默认打开基本信息。首次切到投放数据时查询一次；之后切换 Tab 保留已获取结果，不重复请求。新建投放保存前不可查询。基本信息的未保存编辑保留，保存、删除操作栏仅在基本信息中显示。
+
+统计默认近 7 个上海自然日（包含今天），支持近 7、30、90 天及自定义日期。选择预设或修改日期只更新待查询范围；点击“查询”才应用，重复点击可手动刷新。修改筛选后，已显示数据仍标明实际查询范围。没有定时轮询、聚焦/重连刷新、自动重试、保存联动查询、预取、同步任务或本地统计副本。
+
+```http
+GET /api/admin/buaa-classhopper/ads/placements/ADPL-.../metrics?from_day=2026-11-01&to_day=2026-11-05
+```
+
+接口使用现有 Cloudflare Access。先校验投放属于路径 App，再验证日期；查询参数仅接受 from_day、to_day，均为 YYYY-MM-DD，左闭右开。以上覆盖上海时间 11 月 1 日至 4 日。范围限制为今天及之前 89 个自然日，结束日期最多为明天。界面结束日期为包含当天的日期，发请求时加一天。
+
+平台通过 `EVENT_ANALYTICS` Service Binding 的 `AdMetricsEntrypoint.queryPlacementMetrics` 查询 events。服务端 `EVENT_ANALYTICS_APP_IDS` 映射广告业务 App 到采集 App；默认本地 `{ "buaa-classhopper": "11" }`，生产 `{ "buaa-classhopper": "local" }`。RPC 的 ads_app_id 和 placement_id 来自已验证的路径身份，浏览器不能覆盖。
+
+成功仍为 `{code:1,msg:"获取成功",data:...}`。data 保留 events 的 `app_id,ads_app_id,placement_id,from_day,to_day,summary,daily,coverage` 字段。summary 和 daily 含 impressions、clicks、ctr，daily 按日升序并补零。平台校验结果标识、日期、每日完整性、非负整数计数及汇总一致性。浏览器和服务端均不把故障转换成零值。
+
+CTR 是点击除以曝光，0.03 表示 3%，可超过 100%；无曝光为 null，界面显示 `—`。多次真实点击分别计数；同一事件重传不重复计数，曝光还按 show_id 去重。上海自然日以 events 的服务端 received_at_ms 划分。请求、关闭和错误事件不纳入本版指标。
+
+coverage 提供 90 天保留窗口、统计起点和完整性。跨统计起点时显示覆盖不完整，包含今天时提示持续更新；零值不代表启用前没有发生广告行为。events 不回填既有明细，也不承诺客户端无漏报。统计范围汇总、两张 SVG 趋势图和每日表格共用一次响应。
+
+调用只等待 10 秒，不重试。缺绑定、映射或 events 采集 App 未注册返回 503；异常、超时、损坏或不匹配的上游数据返回 502；日期错误 400，不存在或跨 App 404，非 GET 方法 405。所有响应使用 Cache-Control: no-store。
+
+本次不新增公开广告事件端点、数据库迁移或客户端埋点。生产须先发布 events 的命名入口，绑定和联调方式见 [部署说明](./DEPLOYMENT.md#广告统计服务绑定)。

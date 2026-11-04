@@ -94,7 +94,7 @@ describe("on-demand advertising metrics", () => {
   });
 
   it("returns GET-only 405 responses without fetching statistics", async () => {
-    for (const method of ["POST", "PATCH", "DELETE"]) {
+    for (const method of ["POST", "PATCH", "DELETE", "OPTIONS", "HEAD"]) {
       const response = await request(undefined, {}, base, method);
       expect(response.status).toBe(405); expect(response.headers.get("Allow")).toBe("GET");
       expect(response.headers.get("Cache-Control")).toBe("no-store");

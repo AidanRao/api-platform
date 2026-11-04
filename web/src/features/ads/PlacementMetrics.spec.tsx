@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { renderAdmin, ok, fail } from "../../test-utils";
 import { metricsFixture } from "../../../../test/fixtures/metrics";
-import { addDays, shanghaiDay } from "../../../../src/features/ads/metrics-schema";
+import { addDays, shanghaiDay, dayStart, type PlacementMetrics } from "../../../../src/features/ads/metrics-schema";
 
 const meta = { revision: 1, createdAt: "2026-11-01T00:00:00Z", updatedAt: "2026-11-01T00:00:00Z" };
 const placement = { ...meta, id: "placement-1", appId: "buaa-classhopper", campaignId: "campaign-1", creativeId: "creative-1", slotKey: "home", targetUrl: null, priority: 0, enabled: true, startsAt: null, endsAt: null };
@@ -12,16 +12,18 @@ let metricsFail = false;
 let deferMetrics: ((value: Response) => void) | null = null;
 let defer = false;
 let current = { ...placement };
+let transform: (value: PlacementMetrics) => PlacementMetrics;
 beforeEach(() => {
   metricCalls = []; metricsFail = false; deferMetrics = null; defer = false; current = { ...placement };
+  transform = (value) => value;
   vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = new URL(String(input), "https://test");
     if (url.pathname.endsWith("/metrics")) {
       metricCalls.push({ url, signal: init?.signal ?? undefined });
       if (defer) return new Promise<Response>((resolve) => { deferMetrics = resolve; });
       if (metricsFail) return fail(502, "广告统计暂不可用，请稍后重试");
-      return ok(metricsFixture({ app_id: "11", ads_app_id: url.pathname.split("/")[3]!, placement_id: url.pathname.split("/")[6]!,
-        from_day: url.searchParams.get("from_day")!, to_day: url.searchParams.get("to_day")! }));
+      return ok(transform(metricsFixture({ app_id: "11", ads_app_id: url.pathname.split("/")[3]!, placement_id: url.pathname.split("/")[6]!,
+        from_day: url.searchParams.get("from_day")!, to_day: url.searchParams.get("to_day")! })));
     }
     if (/\/ads\/placements\/placement-\d+$/.test(url.pathname)) {
       if (init?.method === "PATCH") current = { ...current, ...JSON.parse(String(init.body)), revision: current.revision + 1 };
@@ -47,7 +49,7 @@ describe("on-demand placement statistics", () => {
     expect(metricCalls).toHaveLength(1); expect(metricCalls[0]!.url.searchParams.get("from_day")).toBe(addDays(shanghaiDay(), -6));
     expect(metricCalls[0]!.url.searchParams.get("to_day")).toBe(addDays(shanghaiDay(), 1));
     expect(screen.queryByRole("group", { name: "页面操作" })).toBeNull();
-    expect(screen.getByRole("img", { name: "曝光趋势每日趋势" })).toBeTruthy();
+    expect(screen.getByRole("img", { name: "每日曝光趋势" })).toBeTruthy();
     await userEvent.click(screen.getByRole("tab", { name: "基本信息" })); await openStats();
     await act(async () => {
       window.dispatchEvent(new Event("focus")); window.dispatchEvent(new Event("online"));
@@ -99,6 +101,17 @@ describe("on-demand placement statistics", () => {
     expect(metricCalls).toHaveLength(0);
   });
 
+  it("shows zero counts, undefined click rate and partial coverage without inventing data", async () => {
+    transform = (value) => ({ ...value, summary: { impressions: 0, clicks: 0, ctr: null },
+      daily: value.daily.map((row) => ({ ...row, impressions: 0, clicks: 0, ctr: null })),
+      coverage: { ...value.coverage, stats_started_at_ms: dayStart(shanghaiDay()) + 1000,
+        complete_from_day: addDays(shanghaiDay(), 1), is_complete: false } });
+    start(); await openStats(); await screen.findByRole("table");
+    expect(screen.getAllByRole("definition").map((element) => element.textContent)).toEqual(["0", "0", "—"]);
+    expect(screen.getByText(/所选范围未完整覆盖/)).toBeTruthy();
+    expect(screen.getAllByRole("img")).toHaveLength(2);
+  });
+
   it("cancels a pending request when navigating and never leaks old responses into the next placement", async () => {
     const { router } = start(); defer = true; await openStats();
     await waitFor(() => expect(metricCalls).toHaveLength(1));
@@ -109,5 +122,8 @@ describe("on-demand placement statistics", () => {
     await openStats(); await screen.findByRole("table");
     expect(metricCalls).toHaveLength(2); expect(metricCalls[1]!.url.pathname).toContain("placement-2/metrics");
     expect(screen.queryByText("旧投放错误")).toBeNull();
+    await act(async () => { await router.navigate("/admin/second-app/ads/placements/placement-2"); });
+    await openStats(); await screen.findByRole("table");
+    expect(metricCalls).toHaveLength(3); expect(metricCalls[2]!.url.pathname).toContain("/second-app/");
   });
 });

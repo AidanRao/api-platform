@@ -454,6 +454,24 @@ npx wrangler rollback --name api-platform
 
 ## 广告功能迁移
 
-广告使用现有 `API_PLATFORM_DB` 和平台 OSS，无新增绑定或凭据。发布包含广告模块的版本前，先应用 `0005_ads.sql`（共享活动、素材及发布历史，App 广告位和投放）。沿用本文已有生产迁移和部署流程，不单独运行一套广告部署。
+广告资料使用现有 `API_PLATFORM_DB` 和平台 OSS，无新增存储或凭据。发布包含广告模块的版本前，先应用 `0005_ads.sql`（共享活动、素材及发布历史，App 广告位和投放）。沿用本文已有生产迁移和部署流程，不单独运行一套广告部署。统计使用下述 events 服务绑定。
 
 本地验证使用 `npm run db:migrate:local`。上线后检查 `/admin/ads/creatives`、`/admin/ads/campaigns` 和 App 广告栏目，再通过公开广告位接口核验发布、暂停及空结果。具体接入见 [ADS.md](./ADS.md)。新增功能默认没有广告记录，不会自动创建投放或更改公告。
+
+## 广告统计服务绑定
+
+api-platform 只在管理员首次打开“投放数据”或点击查询/重试后访问 events，不复制统计、不增加同步任务、Cron 或 Queue。
+
+Wrangler 默认环境绑定 `EVENT_ANALYTICS → event-analytics-local#AdMetricsEntrypoint`；production 绑定 `EVENT_ANALYTICS → event-analytics#AdMetricsEntrypoint`。`EVENT_ANALYTICS_APP_IDS` 是仅供服务端读取的 JSON 对象，默认将 buaa-classhopper 映射到本地采集 App `11`、生产采集 App `local`。新增业务 App 时配置其映射，并确认 events 的 APPS_JSON 注册了目标采集 App。生产和本地绑定分别配置，不用外部 Access JWT 或新增密钥调用内部 RPC。
+
+本地先在 event-analytics 仓库运行 `npm run dev -- --port 8790`，再在本仓库运行 `npm run db:migrate:local` 和 `npm run dev -- --host 127.0.0.1 --port 5173`。两个本地 Worker 通过 Wrangler dev registry 的 Service Binding 通信；不需要修改相邻仓库源码或启用远程绑定。向本地 events 的 `/v1/events` 发送带广告身份的曝光/点击事件，再打开对应本地投放的数据 Tab 验证。
+
+上线顺序：先发布包含 `AdMetricsEntrypoint` 的 events，再发布 api-platform；dry-run 不会检查已部署的目标服务是否包含该入口。统计功能不要求 api-platform 新建表或迁移。未配置返回 503，调用失败返回 502，管理员可手动重试；基本信息编辑仍可使用。
+
+### 2026-11-04 本地验证
+
+已完成类型检查、生成绑定类型、Worker 全量 226 项测试、Web 全量 116 项测试，以及 production dry-run。Worker 测试通过显式 RPC stub 验证错误、超时和 App 隔离；浏览器联调运行真实 api-platform/D1 与 events/Queue/DO，未模拟统计响应。
+
+向本地 events 发送 1 次曝光、2 次点击，公开采集返回 202；管理员数据 Tab 展示曝光 1、点击 2、点击率 200%，每日表格与趋势一致。基本信息初始不请求统计，重复切 Tab 和更改日期预设不增加请求，显式查询才增加；切换保留未保存优先级。桌面 1440px 无横向溢出；390px 下页面 scrollWidth=390，表格与两张图各宽 358px，最小文字 12px，数据 Tab 无编辑栏及其预留高度。截图位于 output/playwright/placement-metrics-{desktop,mobile}.png。
+
+未部署或修改生产资源，也未修改 events 聚合或客户端上报。开发浏览器控制台出现原有 Vite 内联脚本被 CSP 阻止和 HydrateFallback 提示，页面与真实接口流程正常；更新代码后用完整重载验证，未放宽生产 CSP。

@@ -130,7 +130,7 @@ function RecordPicker<T extends { name: string }>({
             {records.data?.items.length === 0 && <p className="py-12 text-center text-sm text-muted-foreground">暂无{label}</p>}
           </div>
           <SheetFooter className="shrink-0 flex-row items-center justify-between border-t p-4">
-            <p className="text-xs text-muted-foreground">共 {records.data?.total ?? 0} 条 · 第 {page} 页</p>
+            <p className="text-xs text-muted-foreground">共 {records.data?.total ?? 0} 条，第 {page} 页</p>
             <div className="flex gap-2">
               <Button type="button" size="sm" variant="outline" disabled={disabled || records.isFetching || page <= 1} onClick={() => setPage(page - 1)}>上一页</Button>
               <Button type="button" size="sm" variant="outline" disabled={disabled || !records.data || records.isFetching || page * 20 >= records.data.total} onClick={() => setPage(page + 1)}>下一页</Button>
@@ -159,7 +159,7 @@ function CampaignSummary(record: Campaign) {
 function SlotSummary(record: AdSlot) {
   return <div className="space-y-1 text-sm">
     <div className="flex flex-wrap items-center gap-x-3 gap-y-1"><p className="break-words font-medium">{record.name}</p></div>
-    <p className="text-xs text-muted-foreground">{formatNames[record.format]} · 最多 {record.maxItems} 条</p>
+    <p className="text-xs text-muted-foreground">{formatNames[record.format]}，最多 {record.maxItems} 条</p>
   </div>;
 }
 

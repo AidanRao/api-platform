@@ -12,13 +12,13 @@ const rate = (value: number | null) => value === null ? "—" : `${(value * 100)
 function Trend({ daily, metric, label }: { daily: PlacementMetrics["daily"]; metric: "impressions" | "clicks"; label: string }) {
   const title = useId();
   const max = Math.max(1, ...daily.map((row) => row[metric]));
-  const points = daily.map((row, i) => `${daily.length === 1 ? 50 : i / (daily.length - 1) * 100},${96 - row[metric] / max * 88}`);
+  const points = daily.map((row, i) => `${(daily.length === 1 ? 50 : i / (daily.length - 1) * 100).toFixed(2)},${(96 - row[metric] / max * 88).toFixed(2)}`);
   return <figure className="min-w-0 space-y-3" aria-labelledby={title}>
     <figcaption id={title} className="text-sm font-medium">{label}</figcaption>
     <div className="flex min-w-0 gap-3">
       <div aria-hidden="true" className="flex shrink-0 flex-col justify-between pb-1 text-xs tabular-nums text-muted-foreground"><span>{count(max)}</span><span>0</span></div>
-      <svg role="img" aria-label={`${label}每日趋势`} viewBox="0 0 100 100" preserveAspectRatio="none" className="h-36 min-w-0 flex-1 overflow-visible">
-        <title>{label}每日趋势，精确数值见每日明细</title>
+      <svg role="img" aria-label={`每日${label}`} viewBox="0 0 100 100" preserveAspectRatio="none" className="h-36 min-w-0 flex-1 overflow-visible">
+        <title>每日{label}，精确数值见每日明细</title>
         <path d="M0 8H100 M0 52H100 M0 96H100" fill="none" stroke="var(--border)" strokeWidth="0.5" vectorEffect="non-scaling-stroke" />
         <polyline points={points.join(" ")} fill="none" stroke="var(--foreground)" strokeWidth="1" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
         {daily.length === 1 && <circle cx="50" cy={96 - daily[0]![metric] / max * 88} r="0.8" fill="var(--foreground)" />}

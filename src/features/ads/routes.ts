@@ -244,6 +244,7 @@ export function createAppAdsRoutes(appId: string, now: () => Date) {
   );
   router.all("/placements/filters", () => methodNotAllowed("GET"));
   router.get("/placements/:id/metrics", async (c) => {
+    if (c.req.method !== "GET") return methodNotAllowed("GET");
     requireRecord(await service(c, now).repo.placement(appId, c.req.param("id")));
     const range = parse(metricsRangeSchema, c.req.query());
     if (!validMetricsRange(range, now().getTime())) throw new ApiError("请选择最近 90 天内的日期范围", 400);
