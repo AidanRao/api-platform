@@ -32,7 +32,7 @@ export function PlacementFilters({ appId }: { appId: string }) {
       placeholder="投放 ID"
       value={params.get("id") ?? ""}
       maxLength={100}
-      className="w-full text-sm shadow-none transition-none sm:w-72"
+      className="w-full text-sm shadow-none transition-none sm:w-56"
       onChange={(event) => {
         const id = event.target.value.trim();
         setParams((current) => {
