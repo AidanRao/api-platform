@@ -1,6 +1,7 @@
 import { EditorActions } from "@/components/ui/editor-actions";
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { Tabs } from "radix-ui";
 import { useParams, useSearchParams } from "react-router";
 import {
   placementSchema,
@@ -14,6 +15,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { CampaignPicker, SlotPicker, CreativePicker } from "./PlacementRecordPicker";
 import { PlacementField } from "./PlacementField";
+import { PlacementMetricsPanel } from "./PlacementMetricsPanel";
+import { usePlacementMetrics } from "./usePlacementMetrics";
+import "../../platform/resource-theme.css";
 import {
   adBase,
   adKey,
@@ -74,6 +78,7 @@ export default function PlacementEditor() {
   );
 }
 function Editor({ id, initial }: { id: string; initial: Placement | null }) {
+  const [tab, setTab] = useState("basic");
   const [selectionError, setSelectionError] = useState<Error | null>(null);
   const app = useApplication();
   const [params] = useSearchParams();
@@ -88,13 +93,21 @@ function Editor({ id, initial }: { id: string; initial: Placement | null }) {
     schema: placementSchema,
     identifier: (v) => v.id,
   });
+  const metrics = usePlacementMetrics(app.id, form.saved?.id ?? null);
+  const tabClass = "-mb-px border-b border-transparent px-1 pb-3 text-sm font-medium text-muted-foreground data-[state=active]:border-primary data-[state=active]:text-foreground focus-visible:outline-2 focus-visible:outline-ring disabled:opacity-50";
   return (
-    <div className="space-y-6">
+    <div className="resource-theme space-y-6">
       <EditorHeader
         title={form.saved ? "编辑投放" : "新建投放"}
       />
       {form.notices}
       <ErrorNotice error={selectionError} />
+      <Tabs.Root value={tab} onValueChange={(value) => { setTab(value); if (value === "metrics") metrics.open(); }}>
+      <Tabs.List aria-label="投放设置" className="mb-6 flex gap-6 border-b">
+        <Tabs.Trigger value="basic" disabled={form.busy} className={tabClass}>基本信息</Tabs.Trigger>
+        <Tabs.Trigger value="metrics" disabled={form.busy || !form.saved} title={!form.saved ? "请先保存投放" : undefined} className={tabClass}>投放数据</Tabs.Trigger>
+      </Tabs.List>
+      <Tabs.Content value="basic">
       <form
         className="max-w-4xl space-y-6"
         onSubmit={(e) => {
@@ -187,6 +200,9 @@ function Editor({ id, initial }: { id: string; initial: Placement | null }) {
           )}
         </EditorActions>
       </form>
+      </Tabs.Content>
+      <Tabs.Content value="metrics"><PlacementMetricsPanel metrics={metrics} /></Tabs.Content>
+      </Tabs.Root>
     </div>
   );
 }

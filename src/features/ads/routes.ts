@@ -11,6 +11,8 @@ import {
 import { AdsRepository } from "./repository";
 import { AdsService, requireRecord } from "./service";
 import * as schema from "./schema";
+import { metricsRangeSchema, validMetricsRange } from "./metrics-schema";
+import { queryPlacementMetrics } from "./metrics";
 
 function routes() {
   const router = new Hono<AppEnv>();
@@ -241,6 +243,13 @@ export function createAppAdsRoutes(appId: string, now: () => Date) {
     ),
   );
   router.all("/placements/filters", () => methodNotAllowed("GET"));
+  router.get("/placements/:id/metrics", async (c) => {
+    requireRecord(await service(c, now).repo.placement(appId, c.req.param("id")));
+    const range = parse(metricsRangeSchema, c.req.query());
+    if (!validMetricsRange(range, now().getTime())) throw new ApiError("请选择最近 90 天内的日期范围", 400);
+    return successResponse("获取成功", await queryPlacementMetrics(c.env, appId, c.req.param("id"), range));
+  });
+  router.all("/placements/:id/metrics", () => methodNotAllowed("GET"));
   router.get("/placements/:id", async (c) =>
     successResponse(
       "获取成功",

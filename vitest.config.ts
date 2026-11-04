@@ -11,6 +11,14 @@ export default defineConfig({
   plugins: [
     cloudflareTest({
       wrangler: { configPath: "./wrangler.jsonc" },
+      miniflare: { workers: [{
+        name: "event-analytics-local", compatibilityDate: "2026-09-10", modules: true,
+        script: `import { WorkerEntrypoint } from "cloudflare:workers";
+          export class AdMetricsEntrypoint extends WorkerEntrypoint {
+            async queryPlacementMetrics() { throw new Error("Provide an explicit RPC mock in metrics tests"); }
+          }
+          export default {};`,
+      }] },
     }),
   ],
 });
