@@ -128,6 +128,31 @@ beforeEach(async () => {
   now = new Date("2026-10-22T00:00:00.000Z");
 });
 describe("shared ads", () => {
+  it("filters placements by exact ID while preserving App scope, other filters and pagination", async () => {
+    const a = await campaign();
+    const c = await creative();
+    await slot();
+    await slot("second-app");
+    const first = await placement(a, c);
+    await placement(a, c);
+    const foreign = await placement(a, c, "second-app");
+    const id = "ADPL-20261024-FE07YD4MC5";
+    await env.API_PLATFORM_DB.prepare("UPDATE ad_placements SET id=? WHERE id=?").bind(id, first.id).run();
+    const list = (query: string) => request(`${scoped()}/placements?${query}`).then(read<{ items: Placement[]; total: number; page: number }>);
+
+    const matched = await list(`id=${id}&campaignId=${a.id}&creativeId=${c.id}&slotKey=home&enabled=true`);
+    expect(matched.total).toBe(1);
+    expect(matched.items.map((item) => item.id)).toEqual([id]);
+    expect((await list(`id=${encodeURIComponent(`  ${id}  `)}`)).total).toBe(1);
+    for (const value of [id.slice(0, -1), id.toLowerCase(), `${id}%`, "missing", foreign.id, "' OR 1=1 --"]) {
+      expect(await list(`id=${encodeURIComponent(value)}`)).toMatchObject({ items: [], total: 0 });
+    }
+    expect(await list(`id=${id}&enabled=false`)).toMatchObject({ items: [], total: 0 });
+    expect(await list(`id=${id}&campaignId=missing`)).toMatchObject({ items: [], total: 0 });
+    expect(await list(`id=${id}&page=2&pageSize=1`)).toMatchObject({ items: [], total: 1, page: 2 });
+    expect((await list("id=%20%20")).total).toBe(2);
+    expect((await request(`${scoped()}/placements?id=${"x".repeat(101)}`)).status).toBe(400);
+  });
   it("loads only distinct references from the App's existing placements for filters", async () => {
     const a = await campaign({ name: "A 活动", enabled: false });
     const b = await campaign({ name: "B 活动", endsAt: "2020-01-01T00:00:00Z" });

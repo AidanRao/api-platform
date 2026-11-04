@@ -306,6 +306,7 @@ export class AdsRepository {
       args: unknown[] = [];
     for (const [field, value] of Object.entries({
       appId,
+      id: q.id,
       campaignId: q.campaignId,
       creativeId: q.creativeId,
       slotKey: q.slotKey,

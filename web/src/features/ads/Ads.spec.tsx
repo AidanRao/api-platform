@@ -192,6 +192,30 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 describe("advertising administration", () => {
+  it("automatically filters by exact placement ID, resets pagination and keeps filters and URL in sync", async () => {
+    const user = userEvent.setup();
+    const id = "ADPL-20261024-FE07YD4MC5";
+    const { router } = renderAdmin("/admin/buaa-classhopper/ads/placements?page=3&enabled=false&campaignId=ADCA-1&creativeId=ADCR-1&slotKey=home");
+    await waitFor(() => expect((screen.getByRole("combobox", { name: "活动" }) as HTMLButtonElement).disabled).toBe(false));
+    const requests = () => vi.mocked(fetch).mock.calls.map(([url]) => String(url));
+    expect(screen.queryByRole("button", { name: "查询" })).toBeNull();
+    fireEvent.change(screen.getByRole("textbox", { name: "投放 ID" }), { target: { value: `  ${id}  ` } });
+    expect(Object.fromEntries(new URLSearchParams(router.state.location.search))).toEqual({
+      id, enabled: "false", campaignId: "ADCA-1", creativeId: "ADCR-1", slotKey: "home",
+    });
+    await waitFor(() => expect(requests().some((url) => {
+      const query = new URL(url, "https://local.test").searchParams;
+      return url.includes("/ads/placements?") && query.get("id") === id && query.get("page") === "1";
+    })).toBe(true));
+    expect((screen.getByRole("textbox", { name: "投放 ID" }) as HTMLInputElement).value).toBe(id);
+    await user.clear(screen.getByRole("textbox", { name: "投放 ID" }));
+    expect(Object.fromEntries(new URLSearchParams(router.state.location.search))).toEqual({
+      enabled: "false", campaignId: "ADCA-1", creativeId: "ADCR-1", slotKey: "home",
+    });
+    await act(() => router.navigate(`${router.state.location.pathname}?id=${id}`));
+    expect((screen.getByRole("textbox", { name: "投放 ID" }) as HTMLInputElement).value).toBe(id);
+    expect(requests().filter((url) => url.endsWith("/placements/filters"))).toHaveLength(1);
+  });
   it("preloads named placement filters once per App and preserves other filters while resetting pages", async () => {
     const user = userEvent.setup();
     const { router } = renderAdmin("/admin/buaa-classhopper/ads/placements?page=3&enabled=false");

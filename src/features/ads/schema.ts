@@ -138,6 +138,7 @@ export const placementPatchSchema = z
 export const querySchema = z.object({
   page: z.coerce.number().int().min(1).max(1_000_000).default(1),
   pageSize: z.coerce.number().int().min(1).max(100).default(20),
+  id: z.string().trim().max(100).transform((value) => value || undefined).optional(),
   enabled: z
     .enum(["true", "false"])
     .transform((v) => v === "true")

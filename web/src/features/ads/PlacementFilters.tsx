@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useSearchParams } from "react-router";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
@@ -25,6 +26,23 @@ export function PlacementFilters({ appId }: { appId: string }) {
     { key: "slotKey", label: "广告位", options: filters.data?.slots.map((v) => ({ value: v.slotKey, name: v.name })) },
   ];
   return <>
+    <Input
+      name="id"
+      aria-label="投放 ID"
+      placeholder="投放 ID"
+      value={params.get("id") ?? ""}
+      maxLength={100}
+      className="w-full text-sm shadow-none transition-none sm:w-72"
+      onChange={(event) => {
+        const id = event.target.value.trim();
+        setParams((current) => {
+          const next = new URLSearchParams(current);
+          id ? next.set("id", id) : next.delete("id");
+          next.delete("page");
+          return next;
+        }, { replace: true });
+      }}
+    />
     {fields.map(({ key, label, options }) => {
       const value = params.get(key) ?? "";
       return <Select
