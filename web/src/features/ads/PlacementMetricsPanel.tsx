@@ -32,23 +32,24 @@ export function PlacementMetricsPanel({ metrics }: { metrics: ReturnType<typeof 
   const { dates, setDates, data, pending, error } = metrics;
   const today = shanghaiDay(), oldest = addDays(today, -89);
   return <div className="max-w-4xl space-y-6">
-    <form className="space-y-3" onSubmit={(event) => { event.preventDefault(); metrics.query(); }}>
-      <fieldset disabled={pending} className="flex min-w-0 flex-wrap gap-2" aria-label="统计日期预设">
-        {[7, 30, 90].map((days) => <Button key={days} type="button" size="sm" variant="outline" onClick={() => setDates(recentDays(days))}>近 {days} 天</Button>)}
-      </fieldset>
-      <fieldset disabled={pending} className="grid min-w-0 grid-cols-1 items-end gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]">
-        <div className="min-w-0 space-y-2"><Label htmlFor="metrics-from">开始日期</Label><Input id="metrics-from" className="min-w-0" type="date" required min={oldest} max={dates.through || today} value={dates.from} onChange={(e) => setDates({ ...dates, from: e.target.value })} /></div>
-        <div className="min-w-0 space-y-2"><Label htmlFor="metrics-through">结束日期</Label><Input id="metrics-through" className="min-w-0" type="date" required min={dates.from || oldest} max={today} value={dates.through} onChange={(e) => setDates({ ...dates, through: e.target.value })} /></div>
-        <Button type="submit">{pending ? "查询中…" : "查询"}</Button>
+    <form onSubmit={(event) => { event.preventDefault(); metrics.query(); }}>
+      <fieldset disabled={pending} className="flex min-w-0 flex-wrap items-center gap-3">
+        <div className="flex w-full gap-2 sm:w-auto" role="group" aria-label="统计日期预设">
+          {[7, 30, 90].map((days) => {
+            const range = recentDays(days);
+            const selected = dates.from === range.from && dates.through === range.through;
+            return <Button key={days} type="button" variant={selected ? "default" : "outline"} aria-pressed={selected} onClick={() => setDates(range)}>近 {days} 天</Button>;
+          })}
+        </div>
+        <div className="flex min-w-0 basis-full items-center gap-2 sm:basis-auto"><Label htmlFor="metrics-from" className="shrink-0">开始日期</Label><Input id="metrics-from" className="min-w-0 flex-1 sm:w-36 sm:flex-none" type="date" required min={oldest} max={dates.through || today} value={dates.from} onChange={(e) => setDates({ ...dates, from: e.target.value })} /></div>
+        <div className="flex min-w-0 basis-full items-center gap-2 sm:basis-auto"><Label htmlFor="metrics-through" className="shrink-0">结束日期</Label><Input id="metrics-through" className="min-w-0 flex-1 sm:w-36 sm:flex-none" type="date" required min={dates.from || oldest} max={today} value={dates.through} onChange={(e) => setDates({ ...dates, through: e.target.value })} /></div>
+        <Button type="submit" className="w-full sm:w-auto">{pending ? "查询中…" : "查询"}</Button>
       </fieldset>
     </form>
     {pending && <Loading />}
     {error !== null && <div className="space-y-3"><ErrorNotice error={error} /><Button type="button" variant="outline" onClick={metrics.retry} disabled={pending}>重试</Button></div>}
     {data && <>
-      <div className="space-y-1 text-xs text-muted-foreground" aria-live="polite">
-        <p>统计范围：{data.from_day} 至 {addDays(data.to_day, -1)}（上海时间）</p>
-        {!data.coverage.is_complete && <p>{data.from_day < data.coverage.complete_from_day ? `统计自 ${new Date(data.coverage.stats_started_at_ms).toLocaleString("zh-CN", { timeZone: "Asia/Shanghai", hour12: false })} 开始，所选范围未完整覆盖` : ""}{data.from_day < data.coverage.complete_from_day && data.coverage.ongoing ? "；" : ""}{data.coverage.ongoing ? "今日数据持续更新" : ""}</p>}
-      </div>
+      <p className="text-xs text-muted-foreground" aria-live="polite">统计范围：{data.from_day} 至 {addDays(data.to_day, -1)}（上海时间）</p>
       <dl className="grid grid-cols-1 gap-4 border-y py-5 sm:grid-cols-3 sm:gap-6">
         {[["曝光量", count(data.summary.impressions)], ["点击数", count(data.summary.clicks)], ["点击率", rate(data.summary.ctr)]].map(([label, value]) => <div key={label} className="space-y-1"><dt className="text-sm text-muted-foreground">{label}</dt><dd className="text-2xl font-semibold tabular-nums">{value}</dd></div>)}
       </dl>

@@ -61,10 +61,14 @@ describe("on-demand placement statistics", () => {
 
   it("stages presets and dates, queries explicitly, and refreshes the same range on demand", async () => {
     start(); await openStats(); await screen.findByRole("table");
+    expect(screen.getByRole("button", { name: "近 7 天" }).getAttribute("aria-pressed")).toBe("true");
     await userEvent.click(screen.getByRole("button", { name: "近 30 天" }));
+    expect(screen.getByRole("button", { name: "近 30 天" }).getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getByRole("button", { name: "近 7 天" }).getAttribute("aria-pressed")).toBe("false");
     expect(metricCalls).toHaveLength(1);
     expect(screen.getByText(`统计范围：${addDays(shanghaiDay(), -6)} 至 ${shanghaiDay()}（上海时间）`)).toBeTruthy();
     fireEvent.change(screen.getByLabelText("开始日期"), { target: { value: addDays(shanghaiDay(), -2) } });
+    expect(screen.getByRole("button", { name: "近 30 天" }).getAttribute("aria-pressed")).toBe("false");
     await userEvent.click(screen.getByRole("button", { name: "查询" }));
     await waitFor(() => expect(metricCalls).toHaveLength(2));
     await screen.findByRole("table"); expect(screen.getByText("3,000")).toBeTruthy();
@@ -108,7 +112,7 @@ describe("on-demand placement statistics", () => {
         complete_from_day: addDays(shanghaiDay(), 1), is_complete: false } });
     start(); await openStats(); await screen.findByRole("table");
     expect(screen.getAllByRole("definition").map((element) => element.textContent)).toEqual(["0", "0", "—"]);
-    expect(screen.getByText(/所选范围未完整覆盖/)).toBeTruthy();
+    expect(screen.queryByText(/所选范围未完整覆盖|今日数据持续更新/)).toBeNull();
     expect(screen.getAllByRole("img")).toHaveLength(2);
   });
 
