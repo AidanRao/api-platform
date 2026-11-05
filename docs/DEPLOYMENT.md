@@ -466,7 +466,7 @@ Wrangler 默认环境绑定 `EVENT_ANALYTICS → event-analytics-local#AdMetrics
 
 本地先在 event-analytics 仓库运行 `npm run dev -- --port 8790`，再在本仓库运行 `npm run db:migrate:local` 和 `npm run dev -- --host 127.0.0.1 --port 5173`。两个本地 Worker 通过 Wrangler dev registry 的 Service Binding 通信；不需要修改相邻仓库源码或启用远程绑定。向本地 events 的 `/v1/events` 发送带广告身份的曝光/点击事件，再打开对应本地投放的数据 Tab 验证。
 
-上线顺序：先发布包含 `AdMetricsEntrypoint` 的 events，再发布 api-platform；dry-run 不会检查已部署的目标服务是否包含该入口。统计功能不要求 api-platform 新建表或迁移。未配置返回 503，调用失败返回 502，管理员可手动重试；基本信息编辑仍可使用。
+上线顺序：先发布包含 `AdMetricsEntrypoint` 及人数、频次、时长扩展合同的 events，再发布 api-platform；旧合同缺少新增字段会返回 502，不伪造零值。dry-run 不会检查已部署的目标服务是否包含该入口或扩展合同。events 在每个 DO 初始化事务中增量升级统计表、记录 extended_stats_started_at_ms，保留已有曝光/点击与去重记录，不回填历史身份和时长。统计功能不要求 api-platform 新建表或迁移。未配置返回 503，调用失败返回 502，管理员可手动重试；基本信息编辑仍可使用。
 
 ### 2026-11-04 本地验证
 
@@ -475,3 +475,11 @@ Wrangler 默认环境绑定 `EVENT_ANALYTICS → event-analytics-local#AdMetrics
 向本地 events 发送 1 次曝光、2 次点击，公开采集返回 202；管理员数据 Tab 展示曝光 1、点击 2、点击率 200%，每日表格与趋势一致。基本信息初始不请求统计，重复切 Tab 和更改日期预设不增加请求，显式查询才增加；切换保留未保存优先级。桌面 1440px 无横向溢出；390px 下页面 scrollWidth=390，表格与两张图各宽 358px，最小文字 12px，数据 Tab 无编辑栏及其预留高度。截图位于 output/playwright/placement-metrics-{desktop,mobile}.png。
 
 未部署或修改生产资源，也未修改 events 聚合或客户端上报。开发浏览器控制台出现原有 Vite 内联脚本被 CSP 阻止和 HydrateFallback 提示，页面与真实接口流程正常；更新代码后用完整重载验证，未放宽生产 CSP。
+
+### 2026-11-05 人数、频次与时长验证
+
+events 扩展聚合后，本仓库同步扩展 RPC 运行时合同和页面汇总、每日表格，未增加查询时机或自动同步。Worker 全量 227 项、Web 全量 117 项测试通过，Worker/Web 类型检查、生成绑定类型一致性及 production 构建/dry-run 通过。events 独立完成 75 项运行时测试、类型检查和 production dry-run，包含跨天去重、加权均值、零样本、重复关闭、事务回滚、旧表升级、大身份批次、90 天清理和普通事件预算回归。
+
+真实本地浏览器 → api-platform/D1 → events Service Binding/Queue/DO 联调使用新建投放，两台设备共 3 次曝光、3 次点击、3 个结束展示（1000、4000、10000 毫秒），每份采集批次投递两次且均返回 202。最终展示曝光人数 2、点击人数 1、人均曝光次数 1.5、平均可见时长 5 秒，既有指标为 3、3、100%，每日明细一致；没有模拟统计响应。
+
+1440px 桌面六个日期控件顶边均为 209px，页面无横向溢出。390px 手机页面 scrollWidth=390，明细区域宽 358px、表格宽 800px，仅表内横向滚动；最小文字 12px。七项汇总、两张趋势和表格共用一次请求。截图位于 output/playwright/ad-audience-{desktop,mobile}.png。本地数据及截图仅供验收，未修改客户端或部署生产。原有开发 CSP/HydrateFallback 提示仍存在，未放宽 CSP。

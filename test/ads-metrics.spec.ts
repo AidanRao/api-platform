@@ -39,7 +39,10 @@ describe("on-demand advertising metrics", () => {
     for (let i = 0; i < 2; i++) {
       const response = await request(); expect(response.status).toBe(200);
       expect(response.headers.get("Cache-Control")).toBe("no-store");
-      expect(await response.json()).toMatchObject({ code: 1, data: { ads_app_id: "buaa-classhopper", placement_id: "placement-1", summary: { impressions: 4000 } } });
+      expect(await response.json()).toMatchObject({ code: 1, data: { ads_app_id: "buaa-classhopper", placement_id: "placement-1",
+        summary: { impressions: 4000, impression_users: 250, click_users: 2, avg_impressions_per_user: 16, avg_visible_duration_ms: 2500 },
+        daily: [{ impression_users: 250, click_users: 2, avg_impressions_per_user: 4, avg_visible_duration_ms: 2500 }, ...Array.from({ length: 3 }, () => expect.any(Object))],
+      } });
     }
     expect(rpc).toHaveBeenCalledTimes(2);
     expect(rpc).toHaveBeenLastCalledWith({ ...range, app_id: "11", ads_app_id: "buaa-classhopper", placement_id: "placement-1" });
@@ -91,6 +94,25 @@ describe("on-demand advertising metrics", () => {
       await vi.advanceTimersByTimeAsync(10_000); await result;
       expect(rpc).toHaveBeenCalledTimes(1);
     } finally { vi.useRealTimers(); }
+  });
+
+  it("validates distinct audience bounds, weighted averages and sample totals from upstream", async () => {
+    const fixture = () => metricsFixture({ ...range, app_id: "11", ads_app_id: "buaa-classhopper", placement_id: "placement-1" });
+    // The same 250 users on all four days remain 250 across the range, not 1000.
+    expect((await request()).status).toBe(200);
+    for (const changes of [
+      { impression_users: 249 }, { impression_users: 1001 }, { click_users: 1 }, { click_users: 9 },
+      { avg_impressions_per_user: 4 }, { avg_visible_duration_ms: 10000 },
+      { total_visible_duration_ms: 1 }, { closed_shows: 0 }, { identified_impressions: 0 },
+      { avg_visible_duration_ms: null }, { impression_users: -1 },
+    ]) {
+      const result = fixture(); Object.assign(result.summary, changes);
+      rpc.mockResolvedValueOnce({ code: "OK", success: true, message: "Success", result });
+      expect((await request()).status).toBe(502);
+    }
+    const missing = fixture(); Reflect.deleteProperty(missing.summary, "impression_users");
+    rpc.mockResolvedValueOnce({ code: "OK", success: true, message: "Success", result: missing });
+    expect((await request()).status).toBe(502);
   });
 
   it("returns GET-only 405 responses without fetching statistics", async () => {

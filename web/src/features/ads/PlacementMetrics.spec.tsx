@@ -57,6 +57,12 @@ describe("on-demand placement statistics", () => {
     });
     expect(metricCalls).toHaveLength(1); expect(router.state.location.pathname).toBe(path);
     expect(screen.getByText("7,000")).toBeTruthy();
+    expect(screen.getAllByRole("definition").map((element) => element.textContent))
+      .toEqual(["7,000", "21", "0.3%", "250", "2", "28", "2.5 秒"]);
+    const daily = screen.getByRole("table", { name: "每日明细" });
+    expect(daily.querySelectorAll("thead th")).toHaveLength(8);
+    expect([...daily.querySelectorAll("tbody tr:first-child td")].map((element) => element.textContent))
+      .toEqual(["1,000", "3", "0.3%", "250", "2", "4", "2.5 秒"]);
   });
 
   it("stages presets and dates, queries explicitly, and refreshes the same range on demand", async () => {
@@ -106,14 +112,24 @@ describe("on-demand placement statistics", () => {
   });
 
   it("shows zero counts, undefined click rate and partial coverage without inventing data", async () => {
-    transform = (value) => ({ ...value, summary: { impressions: 0, clicks: 0, ctr: null },
-      daily: value.daily.map((row) => ({ ...row, impressions: 0, clicks: 0, ctr: null })),
+    const zero = { impressions: 0, clicks: 0, ctr: null, impression_users: 0, click_users: 0,
+      identified_impressions: 0, closed_shows: 0, total_visible_duration_ms: 0,
+      avg_impressions_per_user: null, avg_visible_duration_ms: null };
+    transform = (value) => ({ ...value, summary: zero,
+      daily: value.daily.map((row) => ({ ...row, ...zero })),
       coverage: { ...value.coverage, stats_started_at_ms: dayStart(shanghaiDay()) + 1000,
         complete_from_day: addDays(shanghaiDay(), 1), is_complete: false } });
     start(); await openStats(); await screen.findByRole("table");
-    expect(screen.getAllByRole("definition").map((element) => element.textContent)).toEqual(["0", "0", "—"]);
+    expect(screen.getAllByRole("definition").map((element) => element.textContent)).toEqual(["0", "0", "—", "0", "0", "—", "—"]);
     expect(screen.queryByText(/所选范围未完整覆盖|今日数据持续更新/)).toBeNull();
     expect(screen.getAllByRole("img")).toHaveLength(2);
+  });
+
+  it("shows genuine zero duration distinctly from missing duration", async () => {
+    transform = (value) => ({ ...value, summary: { ...value.summary, total_visible_duration_ms: 0, avg_visible_duration_ms: 0 },
+      daily: value.daily.map((row) => ({ ...row, total_visible_duration_ms: 0, avg_visible_duration_ms: 0 })) });
+    start(); await openStats(); await screen.findByRole("table");
+    expect(screen.getAllByRole("definition").at(-1)?.textContent).toBe("0 秒");
   });
 
   it("cancels a pending request when navigating and never leaks old responses into the next placement", async () => {

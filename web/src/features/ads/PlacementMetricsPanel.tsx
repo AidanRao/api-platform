@@ -8,6 +8,13 @@ import { recentDays, type usePlacementMetrics } from "./usePlacementMetrics";
 
 const count = (value: number) => value.toLocaleString("zh-CN");
 const rate = (value: number | null) => value === null ? "—" : `${(value * 100).toLocaleString("zh-CN", { maximumFractionDigits: 2 })}%`;
+const average = (value: number | null) => value === null ? "—" : value.toLocaleString("zh-CN", { maximumFractionDigits: 2 });
+const duration = (ms: number | null) => ms === null ? "—" : `${average(ms / 1000)} 秒`;
+const metricValues = (row: PlacementMetrics["summary"]) => [
+  count(row.impressions), count(row.clicks), rate(row.ctr), count(row.impression_users), count(row.click_users),
+  average(row.avg_impressions_per_user), duration(row.avg_visible_duration_ms),
+];
+const metricLabels = ["曝光量", "点击数", "点击率", "曝光人数", "点击人数", "人均曝光次数", "平均可见时长"];
 
 function Trend({ daily, metric, label }: { daily: PlacementMetrics["daily"]; metric: "impressions" | "clicks"; label: string }) {
   const title = useId();
@@ -50,15 +57,17 @@ export function PlacementMetricsPanel({ metrics }: { metrics: ReturnType<typeof 
     {error !== null && <div className="space-y-3"><ErrorNotice error={error} /><Button type="button" variant="outline" onClick={metrics.retry} disabled={pending}>重试</Button></div>}
     {data && <>
       <p className="text-xs text-muted-foreground" aria-live="polite">统计范围：{data.from_day} 至 {addDays(data.to_day, -1)}（上海时间）</p>
-      <dl className="grid grid-cols-1 gap-4 border-y py-5 sm:grid-cols-3 sm:gap-6">
-        {[["曝光量", count(data.summary.impressions)], ["点击数", count(data.summary.clicks)], ["点击率", rate(data.summary.ctr)]].map(([label, value]) => <div key={label} className="space-y-1"><dt className="text-sm text-muted-foreground">{label}</dt><dd className="text-2xl font-semibold tabular-nums">{value}</dd></div>)}
+      <dl className="grid grid-cols-2 gap-4 border-y py-5 sm:grid-cols-4 sm:gap-6">
+        {metricValues(data.summary).map((value, i) => <div key={metricLabels[i]} className="min-w-0 space-y-1"><dt className="text-sm text-muted-foreground">{metricLabels[i]}</dt><dd className="break-words text-2xl font-semibold tabular-nums">{value}</dd></div>)}
       </dl>
       <div className="grid min-w-0 grid-cols-1 gap-8 sm:grid-cols-2"><Trend daily={data.daily} metric="impressions" label="曝光趋势" /><Trend daily={data.daily} metric="clicks" label="点击趋势" /></div>
-      <table className="w-full text-sm tabular-nums">
+      <div className="overflow-x-auto" role="region" aria-label="每日明细" tabIndex={0}>
+      <table className="w-full min-w-[800px] text-sm tabular-nums">
         <caption className="pb-3 text-left font-medium">每日明细</caption>
-        <thead><tr className="border-b text-xs text-muted-foreground">{["日期", "曝光量", "点击数", "点击率"].map((label, i) => <th key={label} className={`py-3 font-medium ${i ? "pl-3 text-right" : "text-left"}`}>{label}</th>)}</tr></thead>
-        <tbody>{data.daily.map((row) => <tr key={row.day} className="border-b"><th scope="row" className="whitespace-nowrap py-3 text-left font-normal">{row.day}</th><td className="py-3 pl-3 text-right">{count(row.impressions)}</td><td className="py-3 pl-3 text-right">{count(row.clicks)}</td><td className="py-3 pl-3 text-right">{rate(row.ctr)}</td></tr>)}</tbody>
+        <thead><tr className="border-b text-xs text-muted-foreground">{["日期", ...metricLabels].map((label, i) => <th key={label} scope="col" className={`whitespace-nowrap py-3 font-medium ${i ? "pl-3 text-right" : "text-left"}`}>{label}</th>)}</tr></thead>
+        <tbody>{data.daily.map((row) => <tr key={row.day} className="border-b"><th scope="row" className="whitespace-nowrap py-3 text-left font-normal">{row.day}</th>{metricValues(row).map((value, i) => <td key={metricLabels[i]} className="whitespace-nowrap py-3 pl-3 text-right">{value}</td>)}</tr>)}</tbody>
       </table>
+      </div>
     </>}
   </div>;
 }

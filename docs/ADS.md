@@ -121,7 +121,7 @@ URL 最长 2048 字符，必须为绝对 URL；不允许首尾空白、控制字
 | `/api/admin/:appId/ads/slots` | GET 列表、POST 创建；`/:slotKey` GET/PATCH/DELETE |
 | `/api/admin/:appId/ads/placements` | GET 列表、POST 创建；`/:id` GET/PATCH/DELETE |
 | `/api/admin/:appId/ads/placements/filters` | GET 当前 App 现有投放关联的活动、素材和广告位筛选选项 |
-| `/api/admin/:appId/ads/placements/:id/metrics` | GET 指定投放的曝光、点击、点击率和每日统计 |
+| `/api/admin/:appId/ads/placements/:id/metrics` | GET 指定投放的曝光、点击、人数、频次、可见时长及每日统计 |
 
 活动字段：`name,notes,enabled,startsAt,endsAt`。素材创建：`name,type,draft`；PATCH：`name,draft`，draft 是完整内容对象（保留字段名，保存时直接发布）。广告位创建：`slotKey,name,format,maxItems`；PATCH 不允许修改标识和类型。投放字段：`campaignId,slotKey,creativeId,targetUrl,priority,enabled,startsAt,endsAt`，App 始终来自请求路径。
 
@@ -170,11 +170,24 @@ GET /api/admin/buaa-classhopper/ads/placements/ADPL-.../metrics?from_day=2026-11
 
 平台通过 `EVENT_ANALYTICS` Service Binding 的 `AdMetricsEntrypoint.queryPlacementMetrics` 查询 events。服务端 `EVENT_ANALYTICS_APP_IDS` 映射广告业务 App 到采集 App；默认本地 `{ "buaa-classhopper": "11" }`，生产 `{ "buaa-classhopper": "local" }`。RPC 的 ads_app_id 和 placement_id 来自已验证的路径身份，浏览器不能覆盖。
 
-成功仍为 `{code:1,msg:"获取成功",data:...}`。data 保留 events 的 `app_id,ads_app_id,placement_id,from_day,to_day,summary,daily,coverage` 字段。summary 和 daily 含 impressions、clicks、ctr，daily 按日升序并补零。平台校验结果标识、日期、每日完整性、非负整数计数及汇总一致性。浏览器和服务端均不把故障转换成零值。
+成功仍为 `{code:1,msg:"获取成功",data:...}`。data 保留 events 的 `app_id,ads_app_id,placement_id,from_day,to_day,summary,daily,coverage` 字段。summary 和 daily 含下列指标，daily 按日升序并补零。平台校验结果标识、日期、每日完整性、非负整数计数、去重人数边界及加权汇总一致性。浏览器和服务端均不把故障转换成零值。
 
-CTR 是点击除以曝光，0.03 表示 3%，可超过 100%；无曝光为 null，界面显示 `—`。多次真实点击分别计数；同一事件重传不重复计数，曝光还按 show_id 去重。上海自然日以 events 的服务端 received_at_ms 划分。请求、关闭和错误事件不纳入本版指标。
+| 字段 | 口径 |
+| --- | --- |
+| impressions / clicks / ctr | 曝光量、点击数、点击率 |
+| impression_users / click_users | 当前范围内按非空字符串 identity.user_id 去重的曝光人数、点击人数，跨天汇总重新去重，不相加每日人数 |
+| avg_impressions_per_user | identified_impressions / impression_users，无可识别曝光用户时为 null |
+| avg_visible_duration_ms | total_visible_duration_ms / closed_shows，无有效结束展示时为 null；界面转换为秒 |
+| identified_impressions | 有有效用户标识且通过 show_id 去重的曝光量，不含匿名曝光 |
+| closed_shows / total_visible_duration_ms | 按 show_id 去重的有效 ad_close 样本数和可见时长总毫秒数，用于加权计算及合同校验 |
+
+现有 Android 的 identity.user_id 是稳定设备 ID，因此人数按设备统计，不保证跨设备归一。无效或缺失身份仍计曝光/点击，但不虚构用户数，也不进入人均曝光的分子。可见时长只接受非负安全整数 visible_duration_ms；不把没有 ad_close 的曝光当作零时长。进程终止等漏报会影响时长样本，平均值不平均每日平均值。有效 0 毫秒展示显示为 0 秒，缺少样本显示 `—`。
+
+CTR 是点击除以曝光，0.03 表示 3%，可超过 100%；无曝光为 null，界面显示 `—`。多次真实点击分别计数；同一事件重传不重复计数，曝光和展示结束分别按 show_id 去重。上海自然日以 events 的服务端 received_at_ms 划分，跨午夜的结束时长计入 ad_close 的服务端接收日。请求和错误事件不纳入指标。
 
 coverage 在接口中保留 90 天窗口、统计起点和完整性信息，页面仅标明当前结果的统计范围。零值不代表启用前没有发生广告行为；events 不回填既有明细，也不承诺客户端无漏报。统计范围汇总、两张 SVG 趋势图和每日表格共用一次响应。日期预设根据当前起止日期显示选中状态，自定义范围不匹配预设时取消选中；预设、起止日期和查询按钮在空间足够时同行排列，窄屏换行。
+
+新增人数、频次和时长从每个 DO 升级时开始累计，coverage.extended_stats_started_at_ms 持久化这个起点；原始 stats_started_at_ms 和已有曝光/点击保留。complete_from_day 与 is_complete 现在按所有指标均启用的时间计算。旧记录不推算用户或时长，跨升级日期的范围可能只有部分新指标覆盖。七项指标同时展示于汇总和每日表，窄屏每日表在自身区域横向滚动。
 
 调用只等待 10 秒，不重试。缺绑定、映射或 events 采集 App 未注册返回 503；异常、超时、损坏或不匹配的上游数据返回 502；日期错误 400，不存在或跨 App 404，非 GET 方法 405。所有响应使用 Cache-Control: no-store。
 
