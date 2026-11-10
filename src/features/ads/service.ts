@@ -102,12 +102,21 @@ export class AdsService {
   ) {
     const current = requireRecord(await this.repo.slot(appId, key));
     checkRevision(current, input.revision);
-    const next = { ...current, ...input };
+    const next = {
+      ...current,
+      ...input,
+      maxItems: input.maxItems ?? (
+        input.format && input.format !== current.format
+          ? (input.format === "carousel" ? 5 : 1)
+          : current.maxItems
+      ),
+    };
     slotLimit(next.format, next.maxItems);
-    return this.changed(
-      await this.repo.updateSlot(next, this.now().toISOString()),
-      () => this.repo.slot(appId, key),
-    );
+    const updated = await this.repo.updateSlot(next, this.now().toISOString());
+    if (updated) return updated;
+    const latest = requireRecord(await this.repo.slot(appId, key));
+    checkRevision(latest, input.revision);
+    throw new ApiError("广告位已有投放，不能修改展示形式", 409);
   }
   private async validatePlacement(appId: string, input: PlacementInput) {
     schedule(input);

@@ -86,6 +86,7 @@ export const placementCreateSchema = z
     slotKey: slotKeySchema,
     creativeId: id,
     targetUrl: targetUrlSchema.default(null),
+    showAdLabel: z.boolean().default(true),
     priority: z.number().int().min(-1_000_000).max(1_000_000).default(0),
     enabled: z.boolean().default(false),
     ...schedule,
@@ -117,6 +118,7 @@ export const slotPatchSchema = z
   .object({
     ...revisionSchema.shape,
     name: name.optional(),
+    format: formatSchema.optional(),
     maxItems: z.number().int().min(1).max(10).optional(),
   })
   .strict()
@@ -128,6 +130,7 @@ export const placementPatchSchema = z
     slotKey: slotKeySchema.optional(),
     creativeId: id.optional(),
     targetUrl: targetUrlSchema.optional(),
+    showAdLabel: z.boolean().optional(),
     priority: z.number().int().min(-1_000_000).max(1_000_000).optional(),
     enabled: z.boolean().optional(),
     startsAt: timestamp.nullable().optional(),

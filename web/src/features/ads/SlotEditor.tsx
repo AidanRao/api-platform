@@ -3,6 +3,8 @@ import { useQuery } from "@tanstack/react-query";
 import { useParams } from "react-router";
 import {
   slotSchema,
+  pageSchema,
+  placementSchema,
   type AdSlot,
   type SlotInput,
 } from "../../../../src/features/ads/schema";
@@ -73,17 +75,33 @@ function Editor({ id, initial }: { id: string; initial: AdSlot | null }) {
     schema: slotSchema,
     identifier: (v) => v.slotKey,
   });
+  const placements = useQuery({
+    queryKey: adKey(app.id, "placements", "slot-format", form.saved?.slotKey),
+    queryFn: ({ signal }) => platformClient(
+      `${adBase(app.id, "placements")}?slotKey=${encodeURIComponent(form.saved!.slotKey)}&pageSize=1`,
+      pageSchema(placementSchema),
+      { signal },
+    ),
+    enabled: !!form.saved,
+  });
+  const canChangeFormat = !form.saved || (placements.isSuccess && placements.data.total === 0);
   return (
     <div className="space-y-6">
       <EditorHeader
         title={form.saved ? "编辑广告位" : "新建广告位"}
       />
       {form.notices}
+      {placements.isError && (
+        <div className="space-y-2">
+          <ErrorNotice error={placements.error} />
+          <Button onClick={() => void placements.refetch()}>重新检查关联投放</Button>
+        </div>
+      )}
       <form
         className="max-w-3xl space-y-5"
         onSubmit={(e) => {
           e.preventDefault();
-          const { slotKey, format, ...editable } = form.draft;
+          const { slotKey, ...editable } = form.draft;
           form.save(
             form.saved
               ? { ...editable, revision: form.saved.revision }
@@ -120,7 +138,7 @@ function Editor({ id, initial }: { id: string; initial: AdSlot | null }) {
           </div>
           <SegmentedChoice
             label="展示形式"
-            disabled={!!form.saved}
+            disabled={!canChangeFormat}
             value={form.draft.format}
             options={Object.entries(formatNames).map(([value, label]) => ({
               value: value as SlotInput["format"],

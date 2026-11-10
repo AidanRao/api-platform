@@ -2,6 +2,7 @@ import { env } from "cloudflare:workers";
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import migration from "../migrations/0005_ads.sql?raw";
 import slotMigration from "../migrations/0006_ads_slots_always_enabled.sql?raw";
+import labelMigration from "../migrations/0009_ads_show_ad_label.sql?raw";
 import { createApp } from "../src/app";
 import { defineApps } from "../src/apps/registry";
 import { AdsRepository } from "../src/features/ads/repository";
@@ -97,6 +98,7 @@ const delivery = (appId = "buaa-classhopper") =>
         publishedVersion: number;
         content: { title: string };
         targetUrl: string | null;
+        showAdLabel: boolean;
       }[];
     }>,
   );
@@ -111,6 +113,12 @@ beforeAll(async () => {
     "INSERT INTO ad_slots(app_id,slot_key,name,format,enabled,max_items,created_at,updated_at) VALUES(?,?,?,?,0,?,?,?)",
   ).bind("buaa-classhopper", "legacy", "旧广告位", "carousel", 3, now.toISOString(), now.toISOString()).run();
   await apply(slotMigration);
+  // Existing placements must keep their visible label after migration.
+  await env.API_PLATFORM_DB.prepare("INSERT INTO ad_campaigns(id,name,created_at,updated_at) VALUES('legacy-campaign','旧活动',?,?)").bind(now.toISOString(), now.toISOString()).run();
+  await env.API_PLATFORM_DB.prepare("INSERT INTO ad_creatives(id,name,type,draft,created_at,updated_at) VALUES('legacy-creative','旧素材','image','{}',?,?)").bind(now.toISOString(), now.toISOString()).run();
+  await env.API_PLATFORM_DB.prepare("INSERT INTO ad_placements(id,campaign_id,app_id,slot_key,creative_id,created_at,updated_at) VALUES('legacy-placement','legacy-campaign','buaa-classhopper','legacy','legacy-creative',?,?)").bind(now.toISOString(), now.toISOString()).run();
+  await apply(labelMigration);
+  expect((await new AdsRepository(env.API_PLATFORM_DB).placement("buaa-classhopper", "legacy-placement"))?.showAdLabel).toBe(true);
   const migrated = await new AdsRepository(env.API_PLATFORM_DB).slot("buaa-classhopper", "legacy");
   expect(migrated).toMatchObject({ slotKey: "legacy", name: "旧广告位", format: "carousel", maxItems: 3, revision: 1 });
   expect(migrated).not.toHaveProperty("enabled");
@@ -128,6 +136,37 @@ beforeEach(async () => {
   now = new Date("2026-10-22T00:00:00.000Z");
 });
 describe("shared ads", () => {
+  it("defaults ad labels on and persists per-placement changes in management and delivery", async () => {
+    const a = await campaign();
+    const c = await creative();
+    await slot(undefined, { format: "carousel", maxItems: 3 });
+    const visible = await placement(a, c, undefined, { priority: 1 });
+    const hidden = await placement(a, c, undefined, { showAdLabel: false });
+    expect(visible.showAdLabel).toBe(true);
+    expect(hidden.showAdLabel).toBe(false);
+    const values = (await delivery()).items;
+    expect(values.find((v) => v.creativeId === c.id)?.showAdLabel).toBe(true);
+    expect(values.map((v) => v.showAdLabel)).toEqual([true, false]);
+    const updated = await request(`${scoped()}/placements/${visible.id}`, "PATCH", {
+      revision: visible.revision, showAdLabel: false,
+    }).then(read<Placement>);
+    const omitted = await request(`${scoped()}/placements/${visible.id}`, "PATCH", {
+      revision: updated.revision, priority: 4,
+    }).then(read<Placement>);
+    expect(omitted.showAdLabel).toBe(false);
+    expect((await delivery()).items.every((v) => v.showAdLabel === false)).toBe(true);
+    const listed = await request(`${scoped()}/placements`).then(read<{ items: Placement[] }>);
+    expect(listed.items.every((v) => v.showAdLabel === false)).toBe(true);
+    for (const value of [null, "false", 0]) {
+      expect((await request(`${scoped()}/placements/${visible.id}`, "PATCH", {
+        revision: omitted.revision, showAdLabel: value,
+      })).status).toBe(400);
+    }
+    await request(`${scoped()}/placements/${visible.id}`, "PATCH", {
+      revision: omitted.revision, showAdLabel: true,
+    }).then(read<Placement>);
+    expect((await delivery()).items.map((v) => v.showAdLabel)).toEqual([true, false]);
+  });
   it("filters placements by exact ID while preserving App scope, other filters and pagination", async () => {
     const a = await campaign();
     const c = await creative();
@@ -336,6 +375,50 @@ describe("shared ads", () => {
       ).status,
     ).toBe(400);
   });
+  it("changes an unused slot format and resets limits while preserving immutable keys and revisions", async () => {
+    const s = await slot();
+    const path = `${scoped()}/slots/home`;
+    const carousel = await request(path, "PATCH", { revision: s.revision, format: "carousel" }).then(read<AdSlot>);
+    expect(carousel).toMatchObject({ format: "carousel", maxItems: 5, revision: 2 });
+    expect((await request(path, "PATCH", { revision: 1, format: "card" })).status).toBe(409);
+    expect((await request(path, "PATCH", { revision: 2, format: "invalid" })).status).toBe(400);
+    expect((await request(path, "PATCH", { revision: 2, slotKey: "other" })).status).toBe(400);
+    expect((await request(path, "PATCH", { revision: 2, format: "banner", maxItems: 2 })).status).toBe(400);
+    const card = await request(path, "PATCH", { revision: 2, format: "card" }).then(read<AdSlot>);
+    expect(card).toMatchObject({ format: "card", maxItems: 1, revision: 3 });
+    const splash = await request(path, "PATCH", { revision: 3, format: "splash" }).then(read<AdSlot>);
+    expect(splash.format).toBe("splash");
+    const custom = await request(path, "PATCH", { revision: 4, format: "carousel", maxItems: 8 }).then(read<AdSlot>);
+    expect(custom.maxItems).toBe(8);
+  });
+  it("blocks format changes with paused placements, allows other edits and unlocks after deletion", async () => {
+    const a = await campaign({ enabled: false });
+    const c = await creative();
+    await slot();
+    const p = await placement(a, c, undefined, { enabled: false });
+    const path = `${scoped()}/slots/home`;
+    const blocked = await request(path, "PATCH", { revision: 1, format: "carousel" });
+    expect(blocked.status).toBe(409);
+    expect((await blocked.json() as { msg: string }).msg).toBe("广告位已有投放，不能修改展示形式");
+    const renamed = await request(path, "PATCH", { revision: 1, name: "新名称", format: "banner" }).then(read<AdSlot>);
+    expect(renamed).toMatchObject({ name: "新名称", format: "banner", revision: 2 });
+    await request(`${scoped()}/placements/${p.id}`, "DELETE", { revision: p.revision }).then(read);
+    expect((await request(path, "PATCH", { revision: 2, format: "carousel" }).then(read<AdSlot>)).format).toBe("carousel");
+  });
+  it("guards format changes in the write statement and scopes placement references to the App", async () => {
+    const a = await campaign();
+    const c = await creative();
+    const original = await slot();
+    await slot("second-app");
+    await placement(a, c, "second-app");
+    const repo = new AdsRepository(env.API_PLATFORM_DB);
+    const updated = await repo.updateSlot({ ...original, format: "carousel", maxItems: 3 }, now.toISOString());
+    expect(updated?.format).toBe("carousel");
+    // A placement appears after the editor read the slot; its revision is unchanged.
+    await placement(a, c);
+    expect(await repo.updateSlot({ ...updated!, format: "card", maxItems: 1 }, now.toISOString())).toBeNull();
+    expect(await repo.slot("buaa-classhopper", "home")).toMatchObject({ format: "carousel", maxItems: 3, revision: 2 });
+  });
   it("protects references, immutable fields and App isolation", async () => {
     const a = await campaign();
     const c = await creative();
@@ -391,7 +474,7 @@ describe("shared ads", () => {
           format: "card",
         })
       ).status,
-    ).toBe(400);
+    ).toBe(409);
     await slot("second-app", { format: "card" });
     expect(
       (

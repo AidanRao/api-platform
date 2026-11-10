@@ -21,7 +21,7 @@ const meta = "revision, created_at AS createdAt, updated_at AS updatedAt";
 const campaignColumns = `id, name, notes, enabled, starts_at AS startsAt, ends_at AS endsAt, ${meta}`;
 const creativeColumns = `id, name, type, draft, published_version AS publishedVersion, ${meta}`;
 const slotColumns = `app_id AS appId, slot_key AS slotKey, name, format, max_items AS maxItems, ${meta}`;
-const placementColumns = `id, campaign_id AS campaignId, app_id AS appId, slot_key AS slotKey, creative_id AS creativeId, target_url AS targetUrl, priority, enabled, starts_at AS startsAt, ends_at AS endsAt, ${meta}`;
+const placementColumns = `id, campaign_id AS campaignId, app_id AS appId, slot_key AS slotKey, creative_id AS creativeId, target_url AS targetUrl, show_ad_label AS showAdLabel, priority, enabled, starts_at AS startsAt, ends_at AS endsAt, ${meta}`;
 const versionColumns =
   "creative_id AS creativeId, version, content, published_at AS publishedAt";
 type Row = Record<string, unknown>;
@@ -29,7 +29,7 @@ const decodeCampaign = (r: Row) =>
   campaignSchema.parse({ ...r, enabled: !!r.enabled });
 const decodeSlot = (r: Row) => slotSchema.parse(r);
 const decodePlacement = (r: Row) =>
-  placementSchema.parse({ ...r, enabled: !!r.enabled });
+  placementSchema.parse({ ...r, enabled: !!r.enabled, showAdLabel: !!r.showAdLabel });
 const decodeVersion = (r: Row) =>
   versionSchema.parse({ ...r, content: JSON.parse(String(r.content)) });
 // A single joined read gives the draft and current published snapshot from the same database snapshot.
@@ -271,14 +271,21 @@ export class AdsRepository {
   }
   async updateSlot(v: AdSlot, now: string) {
     const r = await this.statement(
-      `UPDATE ad_slots SET name=?,max_items=?,revision=revision+1,updated_at=? WHERE app_id=? AND slot_key=? AND revision=? RETURNING ${slotColumns}`,
+      `UPDATE ad_slots SET name=?,format=?,max_items=?,revision=revision+1,updated_at=?
+      WHERE app_id=? AND slot_key=? AND revision=?
+      AND (format=? OR NOT EXISTS(SELECT 1 FROM ad_placements WHERE app_id=? AND slot_key=?))
+      RETURNING ${slotColumns}`,
       [
         v.name,
+        v.format,
         v.maxItems,
         now,
         v.appId,
         v.slotKey,
         v.revision,
+        v.format,
+        v.appId,
+        v.slotKey,
       ],
     ).first<Row>();
     return r ? decodeSlot(r) : null;
@@ -332,8 +339,8 @@ export class AdsRepository {
     AND c.type=CASE WHEN s.format='card' THEN 'card' ELSE 'image' END AND (?=0 OR c.published_version IS NOT NULL))`;
   async createPlacement(appId: string, v: PlacementInput, now: string) {
     const r = await this.statement(
-      `INSERT INTO ad_placements(id,campaign_id,app_id,slot_key,creative_id,target_url,priority,enabled,starts_at,ends_at,created_at,updated_at)
-      SELECT ?,?,?,?,?,?,?,?,?,?,?,? WHERE ${this.eligibility} RETURNING ${placementColumns}`,
+      `INSERT INTO ad_placements(id,campaign_id,app_id,slot_key,creative_id,target_url,show_ad_label,priority,enabled,starts_at,ends_at,created_at,updated_at)
+      SELECT ?,?,?,?,?,?,?,?,?,?,?,?,? WHERE ${this.eligibility} RETURNING ${placementColumns}`,
       [
         generatePublicId("ADPL", new Date(now), "Asia/Shanghai"),
         v.campaignId,
@@ -341,6 +348,7 @@ export class AdsRepository {
         v.slotKey,
         v.creativeId,
         v.targetUrl,
+        Number(v.showAdLabel),
         v.priority,
         Number(v.enabled),
         v.startsAt,
@@ -358,12 +366,13 @@ export class AdsRepository {
   }
   async updatePlacement(v: Placement, now: string) {
     const r = await this.statement(
-      `UPDATE ad_placements SET campaign_id=?,slot_key=?,creative_id=?,target_url=?,priority=?,enabled=?,starts_at=?,ends_at=?,revision=revision+1,updated_at=? WHERE app_id=? AND id=? AND revision=? AND ${this.eligibility} RETURNING ${placementColumns}`,
+      `UPDATE ad_placements SET campaign_id=?,slot_key=?,creative_id=?,target_url=?,show_ad_label=?,priority=?,enabled=?,starts_at=?,ends_at=?,revision=revision+1,updated_at=? WHERE app_id=? AND id=? AND revision=? AND ${this.eligibility} RETURNING ${placementColumns}`,
       [
         v.campaignId,
         v.slotKey,
         v.creativeId,
         v.targetUrl,
+        Number(v.showAdLabel),
         v.priority,
         Number(v.enabled),
         v.startsAt,
@@ -425,7 +434,7 @@ export class AdsRepository {
         [appId, key],
       ),
       this.statement(
-        `SELECT p.campaign_id AS campaignId,p.id AS placementId,p.creative_id AS creativeId,v.version AS publishedVersion,v.content,p.target_url AS targetUrl
+        `SELECT p.campaign_id AS campaignId,p.id AS placementId,p.creative_id AS creativeId,v.version AS publishedVersion,v.content,p.target_url AS targetUrl,p.show_ad_label AS showAdLabel
         FROM ad_placements p JOIN ad_campaigns a ON a.id=p.campaign_id JOIN ad_slots s ON s.app_id=p.app_id AND s.slot_key=p.slot_key
         JOIN ad_creatives c ON c.id=p.creative_id JOIN ad_creative_versions v ON v.creative_id=c.id AND v.version=c.published_version
         WHERE p.app_id=? AND p.slot_key=? AND p.enabled=1 AND a.enabled=1
@@ -444,6 +453,7 @@ export class AdsRepository {
           format: slot.format,
           items: items!.results.map((r) => ({
             ...r,
+            showAdLabel: !!r.showAdLabel,
             content: JSON.parse(String(r.content)),
           })),
         }

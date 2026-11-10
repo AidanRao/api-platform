@@ -13,6 +13,8 @@ import { useApplication } from "../../platform/AppContext";
 import { ErrorNotice, Loading } from "../../platform/feedback";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Label } from "@/components/ui/label";
 import { CampaignPicker, SlotPicker, CreativePicker } from "./PlacementRecordPicker";
 import { PlacementField } from "./PlacementField";
 import { PlacementMetricsPanel } from "./PlacementMetricsPanel";
@@ -32,6 +34,7 @@ const empty: PlacementInput = {
   creativeId: "",
   slotKey: "",
   targetUrl: null,
+  showAdLabel: true,
   priority: 0,
   enabled: false,
   startsAt: null,
@@ -42,6 +45,7 @@ const fields = (v: Placement): PlacementInput => ({
   creativeId: v.creativeId,
   slotKey: v.slotKey,
   targetUrl: v.targetUrl,
+  showAdLabel: v.showAdLabel,
   priority: v.priority,
   enabled: v.enabled,
   startsAt: v.startsAt,
@@ -159,7 +163,14 @@ function Editor({ id, initial }: { id: string; initial: Placement | null }) {
               onChange={(e) => form.edit({ priority: Number(e.target.value) })}
             />
           </PlacementField>
-          <PlacementField label="状态">
+          <PlacementField label="广告标识" align="center">
+            <Label className="flex items-center gap-2">
+              <Checkbox checked={form.draft.showAdLabel ?? true}
+                onCheckedChange={(value) => form.edit({ showAdLabel: value === true })} />
+              显示「广告」标识
+            </Label>
+          </PlacementField>
+          <PlacementField label="状态" align="center">
           <Enabled
             value={form.draft.enabled}
             onChange={(enabled) => form.edit({ enabled })}

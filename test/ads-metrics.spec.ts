@@ -2,6 +2,7 @@ import { env } from "cloudflare:workers";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import migration from "../migrations/0005_ads.sql?raw";
 import slotMigration from "../migrations/0006_ads_slots_always_enabled.sql?raw";
+import labelMigration from "../migrations/0009_ads_show_ad_label.sql?raw";
 import { createApp } from "../src/app";
 import { defineApps } from "../src/apps/registry";
 import { AccessDeniedError } from "../src/http/access-auth";
@@ -21,7 +22,7 @@ const request = (query = new URLSearchParams(range).toString(), overrides = {}, 
   app.request(`https://test${path}?${query}`, { method }, { ...bindings(), ...overrides });
 
 beforeAll(async () => {
-  for (const sql of [migration, slotMigration]) await env.API_PLATFORM_DB.batch(sql.split(";").filter((s) => s.trim()).map((s) => env.API_PLATFORM_DB.prepare(s)));
+  for (const sql of [migration, slotMigration, labelMigration]) await env.API_PLATFORM_DB.batch(sql.split(";").filter((s) => s.trim()).map((s) => env.API_PLATFORM_DB.prepare(s)));
   const t = now.toISOString();
   await env.API_PLATFORM_DB.batch([
     env.API_PLATFORM_DB.prepare("INSERT INTO ad_campaigns(id,name,created_at,updated_at) VALUES('campaign-1','Campaign',?,?)").bind(t, t),

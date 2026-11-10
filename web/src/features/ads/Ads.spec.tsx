@@ -86,6 +86,7 @@ beforeEach(() => {
     creativeId: creative.id,
     slotKey: "home",
     targetUrl: null,
+    showAdLabel: true,
     priority: 0,
     enabled: false,
     startsAt: null,
@@ -140,7 +141,10 @@ beforeEach(() => {
         }
         return ok(campaign);
       }
-      if (path.endsWith("/slots/home")) return ok(slot);
+      if (path.endsWith("/slots/home")) {
+        if (init?.method === "PATCH") slot = { ...slot, ...body, revision: slot.revision + 1 };
+        return ok(slot);
+      }
       if (path.endsWith("/placements/ADPL-1")) {
         if (init?.method === "DELETE") {
           placementDeleted = true;
@@ -192,6 +196,24 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 describe("advertising administration", () => {
+  it("saves and restores the ad label switch for a placement", async () => {
+    const user = userEvent.setup();
+    const { router } = renderAdmin("/admin/buaa-classhopper/ads/placements/ADPL-1");
+    const checkbox = await screen.findByRole("checkbox", { name: "显示「广告」标识" });
+    expect(checkbox.getAttribute("data-state")).toBe("checked");
+    await user.click(checkbox);
+    await user.click(screen.getByRole("button", { name: "保存投放" }));
+    await waitFor(() => expect(writes.at(-1)?.body.showAdLabel).toBe(false));
+    await waitFor(() => expect((screen.getByRole("button", { name: "保存投放" }) as HTMLButtonElement).disabled).toBe(true));
+    await act(() => router.navigate("/admin/buaa-classhopper/ads/placements"));
+    await screen.findByRole("heading", { name: "广告投放" });
+    await act(() => router.navigate("/admin/buaa-classhopper/ads/placements/ADPL-1"));
+    expect((await screen.findByRole("checkbox", { name: "显示「广告」标识" })).getAttribute("data-state")).toBe("unchecked");
+    await user.click(screen.getByRole("checkbox", { name: "显示「广告」标识" }));
+    await user.click(screen.getByRole("button", { name: "保存投放" }));
+    await waitFor(() => expect(writes.at(-1)?.body.showAdLabel).toBe(true));
+  });
+
   it("automatically filters by exact placement ID, resets pagination and keeps filters and URL in sync", async () => {
     const user = userEvent.setup();
     const id = "ADPL-20261024-FE07YD4MC5";
@@ -486,6 +508,49 @@ describe("advertising administration", () => {
     await user.click(screen.getByRole("button", { name: "保存广告位" }));
     await waitFor(() => expect(writes).toHaveLength(1));
     expect(writes[0]!.body).not.toHaveProperty("enabled");
+  });
+  it("allows unused slot format changes and saves the selected format and limit", async () => {
+    placementDeleted = true;
+    const user = userEvent.setup();
+    renderAdmin("/admin/buaa-classhopper/ads/slots/home");
+    const carousel = await screen.findByRole("radio", { name: "轮播" });
+    await waitFor(() => expect(carousel.closest("fieldset")?.disabled).toBe(false));
+    await user.click(carousel);
+    const limit = screen.getByRole("spinbutton", { name: "最多返回条数" });
+    expect((limit as HTMLInputElement).value).toBe("5");
+    fireEvent.change(limit, { target: { value: "3" } });
+    await user.click(screen.getByRole("button", { name: "保存广告位" }));
+    await waitFor(() => expect(writes).toHaveLength(1));
+    expect(writes[0]!.body).toMatchObject({ format: "carousel", maxItems: 3, revision: 1 });
+    expect(writes[0]!.body).not.toHaveProperty("slotKey");
+    await waitFor(() => expect((screen.getByRole("button", { name: "保存广告位" }) as HTMLButtonElement).disabled).toBe(true));
+    await user.click(screen.getByRole("radio", { name: "横幅" }));
+    expect(screen.queryByRole("spinbutton", { name: "最多返回条数" })).toBeNull();
+    await user.click(screen.getByRole("button", { name: "保存广告位" }));
+    await waitFor(() => expect(writes).toHaveLength(2));
+    expect(writes[1]!.body).toMatchObject({ format: "banner", maxItems: 1, revision: 2 });
+  });
+  it("keeps the format locked when even a paused placement is linked", async () => {
+    renderAdmin("/admin/buaa-classhopper/ads/slots/home");
+    await screen.findByRole("radio", { name: "轮播" });
+    expect((screen.getByRole("group", { name: "展示形式" }) as HTMLFieldSetElement).disabled).toBe(true);
+    await waitFor(() => expect(vi.mocked(fetch).mock.calls.some(([url]) => String(url).includes("slotKey=home&pageSize=1"))).toBe(true));
+    expect((screen.getByRole("group", { name: "展示形式" }) as HTMLFieldSetElement).disabled).toBe(true);
+  });
+  it("keeps the format locked when reference checks fail and allows retry", async () => {
+    placementDeleted = true;
+    const originalFetch = fetch;
+    let failCheck = true;
+    vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL, init?: RequestInit) =>
+      failCheck && String(input).includes("slotKey=home&pageSize=1")
+        ? Promise.resolve(fail(502, "关联投放查询失败")) : originalFetch(input, init)));
+    const user = userEvent.setup();
+    renderAdmin("/admin/buaa-classhopper/ads/slots/home");
+    await screen.findByText("关联投放查询失败");
+    expect((screen.getByRole("group", { name: "展示形式" }) as HTMLFieldSetElement).disabled).toBe(true);
+    failCheck = false;
+    await user.click(screen.getByRole("button", { name: "重新检查关联投放" }));
+    await waitFor(() => expect((screen.getByRole("group", { name: "展示形式" }) as HTMLFieldSetElement).disabled).toBe(false));
   });
   it("loads selected details without opening a library and previews the published creative", async () => {
     creative.draft = { ...creative.draft, title: "未发布的新标题", imageUrl: `${image}?draft` };

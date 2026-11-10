@@ -42,7 +42,11 @@
 
 ## 广告位与投放规则
 
-- 广告位 `(appId, slotKey)` 唯一，slotKey 使用小写字母、数字，可用单个短横线或下划线分隔，例如 `home-banner`、`announcement_top_banner`，最长 100 字符，`new` 为管理页面保留标识。App、标识和展示形式不可修改。
+投放编辑页的“广告标识”可配置是否显示「广告」标识。`showAdLabel` 为布尔值，创建时默认 `true`，PATCH 省略时保留原值；公开接口在每个 `items[]` 上返回此字段，允许同一轮播中的不同投放分别配置。客户端遇到旧接口省略该字段时应按 `true` 处理。
+
+BUAA-ClassHopper 的 `profile-bottom` 广告位位于“我的”页北航身份认证卡片下方，后台名称建议“我的页底部广告”，可使用 banner、carousel 或 card。
+
+- 广告位 `(appId, slotKey)` 唯一，slotKey 使用小写字母、数字，可用单个短横线或下划线分隔，例如 `home-banner`、`announcement_top_banner`，最长 100 字符，`new` 为管理页面保留标识。App 和标识不可修改；没有关联投放时允许修改展示形式，已有投放（包括停用投放）时禁止修改展示形式。
 - `format` 为 `banner`、`carousel`、`card`、`splash`。图片展示形式 banner/carousel/splash 使用 `image` 类型素材，card 使用 `card` 素材。
 - 非轮播 `maxItems=1`；轮播默认 5，可配置 1–10。轮播由同一广告位上的多条投放组成。
 - 优先级范围 -1000000 到 1000000，越大越优先；相同优先级按创建时间、ID 升序。
@@ -79,6 +83,7 @@ GET /api/:appId/ads/slots/:slotKey
         "description": "活动简介",
         "buttonText": "了解更多"
       },
+      "showAdLabel": true,
       "targetUrl": "buaa-classhopper://annoucement/ANNC-1"
     }]
   }
@@ -123,7 +128,7 @@ URL 最长 2048 字符，必须为绝对 URL；不允许首尾空白、控制字
 | `/api/admin/:appId/ads/placements/filters` | GET 当前 App 现有投放关联的活动、素材和广告位筛选选项 |
 | `/api/admin/:appId/ads/placements/:id/metrics` | GET 指定投放的曝光、点击、人数、频次、可见时长及每日统计 |
 
-活动字段：`name,notes,enabled,startsAt,endsAt`。素材创建：`name,type,draft`；PATCH：`name,draft`，draft 是完整内容对象（保留字段名，保存时直接发布）。广告位创建：`slotKey,name,format,maxItems`；PATCH 不允许修改标识和类型。投放字段：`campaignId,slotKey,creativeId,targetUrl,priority,enabled,startsAt,endsAt`，App 始终来自请求路径。
+活动字段：`name,notes,enabled,startsAt,endsAt`。素材创建：`name,type,draft`；PATCH：`name,draft`，draft 是完整内容对象（保留字段名，保存时直接发布）。广告位创建：`slotKey,name,format,maxItems`；PATCH 不允许修改标识；没有关联投放时可修改 format，切换为轮播默认 maxItems=5，切换为其他形式默认 maxItems=1。投放字段：`campaignId,slotKey,creativeId,targetUrl,showAdLabel,priority,enabled,startsAt,endsAt`，App 始终来自请求路径。
 
 PATCH 仅更新传入字段；传 null 可移除时间边界/跳转地址，传省略字段则保留。删除请求体为 `{"revision":1}`。管理对象含 revision、createdAt、updatedAt；素材对象额外包含 draft、publishedVersion 和 published（当前快照或 null）。
 
@@ -148,7 +153,7 @@ PATCH 仅更新传入字段；传 null 可移除时间边界/跳转地址，传�
 
 ## 实现与验收
 
-广告模块位于 `src/features/ads` 和 `web/src/features/ads`，使用现有 API_PLATFORM_DB。`0005_ads.sql` 新建五张广告表，`0006_ads_slots_always_enabled.sql` 删除广告位 enabled 列，保留广告位及投放关联，不修改公告数据。平台共享资源、App 专属广告资源分别装配；App 注册表保留 `ads` 标识以避免平台路径冲突。
+广告模块位于 `src/features/ads` 和 `web/src/features/ads`，使用现有 API_PLATFORM_DB。`0005_ads.sql` 新建五张广告表，`0009_ads_show_ad_label.sql` 新增投放 show_ad_label 列，已有投放默认显示标识；`0006_ads_slots_always_enabled.sql` 删除广告位 enabled 列，保留广告位及投放关联，不修改公告数据。平台共享资源、App 专属广告资源分别装配；App 注册表保留 `ads` 标识以避免平台路径冲突。
 
 本地先运行 `npm run db:migrate:local`，再启动 `npm run dev`。提交部署前完成类型检查、Worker/Web 测试、构建与 production dry-run。正式部署需先应用迁移；本功能开发验证不执行生产迁移、推送或部署。
 
