@@ -3,7 +3,7 @@ import { z } from "zod";
 export type IclassNodeEnv = Pick<Env, "ENVIRONMENT" | "ICLASS_SERVICE_BASE_URL" | "ICLASS_SERVICE_SECRET"> & {
   ICLASS_SERVICE_BINDINGS?: unknown;
 };
-type Operation = "schedule" | "sign" | "checkin";
+type Operation = "identity" | "schedule" | "sign" | "checkin";
 type Binding = { fetch(request: Request): Promise<Response> };
 type Node = { name: string; binding: Binding };
 
@@ -136,6 +136,7 @@ export class IclassNodePool {
         message: busy ? "check-in service is busy" : "iClass service unavailable" }, { status: 503 });
     }
     let lastResponse: Response | undefined;
+    const retryableLookup = operation === "schedule" || operation === "identity";
     for (const node of candidates) {
       signal.throwIfAborted();
       const started = Date.now();
@@ -143,7 +144,7 @@ export class IclassNodePool {
         const response = await bufferResponse(await beforeDeadline(node.binding.fetch(request.clone()), signal), signal);
         const payload = envelope(await response.clone().text());
         signal.throwIfAborted();
-        const retry = operation === "schedule"
+        const retry = retryableLookup
           ? ![1001, 1002, 2002, 2003, 2004].includes(Number(payload.code)) &&
             (response.status >= 500 || [2001, 2005].includes(Number(payload.code)))
           : response.status === 503 && payload.success === false && payload.code === 1004;
@@ -152,7 +153,7 @@ export class IclassNodePool {
         lastResponse = response;
       } catch (error) {
         this.log(node.name, operation, "request_failed", started);
-        if (operation !== "schedule" || signal.aborted || node === candidates[candidates.length - 1]) throw error;
+        if (!retryableLookup || signal.aborted || node === candidates[candidates.length - 1]) throw error;
         lastResponse = undefined;
       }
     }

@@ -52,6 +52,7 @@ export function createIclassRoutes(now: () => Date, verifier?: SsoVerifier) {
     return successResponse("授权已撤销", {
       authorized: false,
       authorizedAt: null,
+      identity: null,
     });
   });
   routes.get("/course-schedules", async (c) => {

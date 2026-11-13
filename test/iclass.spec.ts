@@ -27,6 +27,7 @@ const course = {
   classBeginTime: "2026-10-27 09:50:00",
   classEndTime: "2026-10-27 10:35:00",
 };
+const identity = { studentName: "张三", studentId: "00123456", academyName: "计算机学院" };
 const verify = async (request: Request) => {
   if (!request.headers.has("Authorization"))
     throw new ApiError("缺少 Bearer 凭证", 401);
@@ -86,7 +87,8 @@ beforeEach(async () => {
   );
   vi.stubGlobal(
     "fetch",
-    vi.fn(async () => reply([course])),
+    vi.fn(async (input: Request) =>
+      reply(new URL(input.url).pathname === "/internal/iclass/identity" ? identity : [course])),
   );
 });
 afterEach(() => {
@@ -186,6 +188,7 @@ describe("iClass user authorization, schedules and immediate sign-in", () => {
     expect((await json(await call("/authorization"))).data).toEqual({
       authorized: false,
       authorizedAt: null,
+      identity: null,
     });
     expect((await call("/course-schedules?date=2026-10-27")).status).toBe(403);
     expect(
@@ -196,13 +199,25 @@ describe("iClass user authorization, schedules and immediate sign-in", () => {
         })
       ).status,
     ).toBe(400);
-    expect((await authorize()).status).toBe(200);
+    const grant = await authorize();
+    expect(grant.status).toBe(200);
+    expect((await json(grant)).data).toEqual({ authorized: true, authorizedAt: clock.toISOString(), identity });
+    const request = vi.mocked(fetch).mock.calls[0]![0] as Request;
+    expect(new URL(request.url).pathname).toBe("/internal/iclass/identity");
+    expect(new URL(request.url).search).toBe("");
+    expect(request.method).toBe("POST");
+    const signedBody = await request.text();
+    expect(JSON.parse(signedBody)).toEqual({ loginName: "sensitive-loginName" });
+    expect(request.headers.get("X-Signature")).toBe(await signCheckinBody(
+      bindings.ICLASS_SERVICE_SECRET, request.headers.get("X-Timestamp")!, signedBody,
+    ));
     const row = await new IclassAuthorizationRepository(
       env.API_PLATFORM_KV,
     ).get("user-1");
     expect(row).toEqual({
       login_name: "sensitive-loginName",
       authorized_at: clock.toISOString(),
+      identity,
     });
     expect(
       await env.API_PLATFORM_KV.get(
@@ -210,7 +225,11 @@ describe("iClass user authorization, schedules and immediate sign-in", () => {
         "json",
       ),
     ).toEqual(row);
-    const body = await (await call("/authorization")).text();
+    const result = await call("/authorization");
+    expect(result.headers.get("Cache-Control")).toBe("no-store");
+    const body = await result.text();
+    expect(JSON.parse(body).data).toEqual({ authorized: true, authorizedAt: clock.toISOString(), identity });
+    expect(fetch).toHaveBeenCalledTimes(1);
     expect(body).not.toContain("loginName");
     expect(body).not.toContain(row!.login_name);
     expect(
@@ -223,7 +242,8 @@ describe("iClass user authorization, schedules and immediate sign-in", () => {
       "corrupt-json",
       JSON.stringify({ login_name: 123, authorized_at: clock.toISOString() }),
       JSON.stringify({ login_name: "", authorized_at: clock.toISOString() }),
-      JSON.stringify({ login_name: "test", authorized_at: "invalid-date" }),
+      JSON.stringify({ login_name: "test", authorized_at: "invalid-date", identity }),
+      JSON.stringify({ login_name: "test", authorized_at: clock.toISOString(), identity: { ...identity, studentId: "" } }),
     ]) {
       await env.API_PLATFORM_KV.put(
         "buaa-classhopper:iclass:authorization:user-1",
@@ -244,8 +264,7 @@ describe("iClass user authorization, schedules and immediate sign-in", () => {
       status: 503,
     });
   });
-  it("accepts an empty day and preserves prior authorization on upstream errors", async () => {
-    vi.mocked(fetch).mockResolvedValueOnce(reply([]));
+  it("preserves prior authorization when identity lookup fails", async () => {
     expect((await authorize()).status).toBe(200);
     const repo = new IclassAuthorizationRepository(env.API_PLATFORM_KV);
     const original = await repo.get("user-1");
@@ -256,6 +275,11 @@ describe("iClass user authorization, schedules and immediate sign-in", () => {
       "ICLASS_AUTHORIZATION_INVALID",
     );
     expect(await repo.get("user-1")).toEqual(original);
+    vi.mocked(fetch).mockResolvedValueOnce(reply({ ...identity, studentId: "" }));
+    const incomplete = await call("/authorization", "PUT", { loginName: "new" });
+    expect(incomplete.status).toBe(502);
+    expect((await json(incomplete)).data.reason).toBe("ICLASS_INVALID_RESPONSE");
+    expect(await repo.get("user-1")).toEqual(original);
     vi.mocked(fetch).mockRejectedValueOnce(new TypeError("network"));
     expect(
       (await call("/authorization", "PUT", { loginName: "new" })).status,
@@ -264,6 +288,8 @@ describe("iClass user authorization, schedules and immediate sign-in", () => {
   });
   it("replaces the validated loginName while keeping each user's KV record separate", async () => {
     await authorize();
+    const replacement = { studentName: "李四", studentId: "00123457", academyName: null };
+    vi.mocked(fetch).mockResolvedValueOnce(reply(replacement));
     expect(
       (await call("/authorization", "PUT", { loginName: "replacement-login" }))
         .status,
@@ -281,6 +307,9 @@ describe("iClass user authorization, schedules and immediate sign-in", () => {
     const repo = new IclassAuthorizationRepository(env.API_PLATFORM_KV);
     expect((await repo.get("user-1"))?.login_name).toBe("replacement-login");
     expect((await repo.get("user-2"))?.login_name).toBe("another-login");
+    expect((await json(await call("/authorization"))).data).toMatchObject({ identity: replacement });
+    expect((await json(await call("/authorization", "GET", undefined, "user-2"))).data)
+      .toMatchObject({ identity });
     for (const [user, expected] of [
       ["user-1", "replacement-login"],
       ["user-2", "another-login"],
@@ -302,7 +331,8 @@ describe("iClass user authorization, schedules and immediate sign-in", () => {
         ).status,
       ).toBe(200);
     }
-    await call("/authorization", "DELETE");
+    expect((await json(await call("/authorization", "DELETE"))).data)
+      .toEqual({ authorized: false, authorizedAt: null, identity: null });
     expect(await repo.get("user-1")).toBeNull();
     expect((await repo.get("user-2"))?.login_name).toBe("another-login");
   });
@@ -443,11 +473,11 @@ describe("iClass user authorization, schedules and immediate sign-in", () => {
         const repo = new IclassAuthorizationRepository(env.API_PLATFORM_KV);
         if (change === "revoked") await repo.remove("user-1");
         else
-          await repo.put(
-            "user-1",
-            change === "replaced" ? "new-login" : "sensitive-loginName",
-            new Date(clock.getTime() + 1),
-          );
+          await repo.put("user-1", {
+            login_name: change === "replaced" ? "new-login" : "sensitive-loginName",
+            authorized_at: new Date(clock.getTime() + 1).toISOString(),
+            identity,
+          });
         return reply([course]);
       });
       const response = await call("/sign-ins", "POST", {

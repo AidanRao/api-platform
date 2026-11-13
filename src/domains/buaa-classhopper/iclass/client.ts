@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { ApiError } from "../../../http/errors";
 import { signCheckinBody } from "../../../infrastructure/hmac";
-import { courseSchema } from "./schema";
+import { courseSchema, identitySchema } from "./schema";
 import { IclassNodePool, type IclassNodeEnv } from "./node-pool";
 
 type ClientEnv = IclassNodeEnv;
@@ -15,10 +15,17 @@ export class IclassClient {
     private readonly env: ClientEnv,
     private readonly now: () => Date,
   ) {}
+  async identity(loginName: string) {
+    const data = await this.request("/internal/iclass/identity", "identity", { loginName });
+    const parsed = identitySchema.safeParse(data);
+    if (!parsed.success)
+      throw reasonError("ICLASS_INVALID_RESPONSE", "iClass 返回的身份信息不完整，请重试");
+    return parsed.data;
+  }
   async schedule(loginName: string, date: string) {
     const data = await this.request(
       "/internal/iclass/course-schedules",
-      "GET",
+      "schedule",
       { loginName, date },
     );
     const parsed = z.array(courseSchema).safeParse(data);
@@ -27,7 +34,7 @@ export class IclassClient {
     return parsed.data;
   }
   async sign(loginName: string, courseScheduleId: string) {
-    const data = await this.request("/internal/iclass/sign-ins", "POST", {
+    const data = await this.request("/internal/iclass/sign-ins", "sign", {
       loginName,
       courseScheduleId,
     });
@@ -47,8 +54,8 @@ export class IclassClient {
   }
   private async request(
     path: string,
-    method: "GET" | "POST",
-    input: Record<string, string>,
+    operation: "identity" | "schedule" | "sign",
+    input: { loginName: string } & Record<string, string>,
   ): Promise<unknown> {
     const {
       ICLASS_SERVICE_BASE_URL: base,
@@ -57,8 +64,9 @@ export class IclassClient {
     let pool: IclassNodePool;
     try { pool = new IclassNodePool(this.env); }
     catch {
-      throw reasonError("ICLASS_UNAVAILABLE", "课表服务尚未配置", 503);
+      throw reasonError("ICLASS_UNAVAILABLE", "iClass 服务尚未配置", 503);
     }
+    const method = operation === "schedule" ? "GET" : "POST";
     const url = new URL(path, base);
     const body = method === "POST" ? JSON.stringify(input) : "";
     if (method === "GET")
@@ -81,13 +89,13 @@ export class IclassClient {
         redirect: "manual",
         signal: AbortSignal.timeout(25_000),
       });
-      response = await pool.fetch(request, input.loginName!, method === "GET" ? "schedule" : "sign");
+      response = await pool.fetch(request, input.loginName, operation);
     } catch {
       throw reasonError(
-        method === "POST" ? "SIGN_RESULT_UNKNOWN" : "ICLASS_NETWORK_ERROR",
-        method === "POST"
+        operation === "sign" ? "SIGN_RESULT_UNKNOWN" : "ICLASS_NETWORK_ERROR",
+        operation === "sign"
           ? "签到结果未确认，请刷新课表查看"
-          : "课表服务连接失败，请重试",
+          : "iClass 服务连接失败，请重试",
       );
     }
     let payload: { code?: number; success?: boolean; data?: unknown };
@@ -99,7 +107,7 @@ export class IclassClient {
       payload = parsed.data;
     } catch {
       throw reasonError(
-        method === "POST" ? "SIGN_RESULT_UNKNOWN" : "ICLASS_INVALID_RESPONSE",
+        operation === "sign" ? "SIGN_RESULT_UNKNOWN" : "ICLASS_INVALID_RESPONSE",
         "服务返回无效响应，请刷新后重试",
       );
     }
@@ -120,17 +128,17 @@ export class IclassClient {
           "签到结果未确认，请刷新课表查看",
         );
       case 1004:
-        throw reasonError("ICLASS_BUSY", "课表服务繁忙，请稍后重试", 503);
+        throw reasonError("ICLASS_BUSY", "iClass 服务繁忙，请稍后重试", 503);
       case 2001:
         throw reasonError(
           "ICLASS_UNAVAILABLE",
-          "课表服务暂时无法连接校园网络",
+          "iClass 服务暂时无法连接校园网络",
           503,
         );
       default:
         throw reasonError(
           "ICLASS_UPSTREAM_ERROR",
-          "课表服务暂时不可用，请稍后重试",
+          "iClass 服务暂时不可用，请稍后重试",
         );
     }
   }

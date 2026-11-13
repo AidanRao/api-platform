@@ -3,7 +3,7 @@ import {
   IclassAuthorizationRepository,
   type AuthorizationRow,
 } from "./repository";
-import { courseTime, shanghaiDate } from "./schema";
+import { courseTime } from "./schema";
 import { ReservationRepository } from "../reservations/repository";
 
 export class IclassService {
@@ -20,12 +20,15 @@ export class IclassService {
   }
   async authorization(userId: string) {
     const row = await this.repository.get(userId);
-    return { authorized: !!row, authorizedAt: row?.authorized_at ?? null };
+    return row
+      ? { authorized: true, authorizedAt: row.authorized_at, identity: row.identity }
+      : { authorized: false, authorizedAt: null, identity: null };
   }
   async authorize(userId: string, loginName: string) {
-    await this.client.schedule(loginName, shanghaiDate(this.now()));
-    await this.repository.put(userId, loginName, this.now());
-    return this.authorization(userId);
+    const identity = await this.client.identity(loginName);
+    const authorizedAt = this.now().toISOString();
+    await this.repository.put(userId, { login_name: loginName, authorized_at: authorizedAt, identity });
+    return { authorized: true, authorizedAt, identity };
   }
   private async credentials(userId: string) {
     const row = await this.repository.get(userId);

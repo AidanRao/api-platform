@@ -10,6 +10,13 @@ export const dateSchema = z
 export const authorizationSchema = z
   .object({ loginName: z.string().trim().min(1).max(4096) })
   .strict();
+export const identitySchema = z.object({
+  studentName: z.string().trim().min(1),
+  studentId: z.string().trim().min(1),
+  academyName: z.string().trim().min(1).nullable(),
+});
+export type IclassIdentity = z.infer<typeof identitySchema>;
+
 export const signInSchema = z
   .object({
     date: dateSchema,

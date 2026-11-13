@@ -1,8 +1,14 @@
+import { z } from "zod";
 import { ApiError } from "../../../http/errors";
-export interface AuthorizationRow {
-  login_name: string;
-  authorized_at: string;
-}
+import { identitySchema } from "./schema";
+
+const authorizationRowSchema = z.object({
+  login_name: z.string().min(1),
+  authorized_at: z.iso.datetime(),
+  identity: identitySchema,
+});
+export type AuthorizationRow = z.infer<typeof authorizationRowSchema>;
+
 export class IclassAuthorizationRepository {
   constructor(private readonly kv: KVNamespace) {}
   private key(userId: string) {
@@ -10,31 +16,17 @@ export class IclassAuthorizationRepository {
   }
   async get(userId: string): Promise<AuthorizationRow | null> {
     try {
-      const value = await this.kv.get<AuthorizationRow>(
-        this.key(userId),
-        "json",
-      );
-      if (
-        value !== null &&
-        (typeof value.login_name !== "string" ||
-          !value.login_name ||
-          typeof value.authorized_at !== "string" ||
-          !Number.isFinite(Date.parse(value.authorized_at)))
-      )
-        throw new Error("invalid authorization");
-      return value;
+      const value = await this.kv.get(this.key(userId), "json");
+      return value === null ? null : authorizationRowSchema.parse(value);
     } catch {
       throw new ApiError("授权存储暂时不可用，请稍后重试", 503);
     }
   }
-  async put(userId: string, loginName: string, now: Date) {
+  async put(userId: string, row: AuthorizationRow) {
     try {
       await this.kv.put(
         this.key(userId),
-        JSON.stringify({
-          login_name: loginName,
-          authorized_at: now.toISOString(),
-        }),
+        JSON.stringify(row),
       );
     } catch {
       throw new ApiError("授权保存失败，请稍后重试", 503);

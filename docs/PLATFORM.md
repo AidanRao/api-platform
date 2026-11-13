@@ -195,6 +195,8 @@ Worker 日志中的 `oss_upload_failed` 区分 `phase: request`（网络或运�
 
 ## iClass 签到服务请求签名
 
+App 完成授权时，`PUT /api/buaa-classhopper/v1/iclass/authorization` 接收 `{ loginName }`。Worker 使用签名后的 `POST /internal/iclass/identity` 向 Go 服务查询北航身份，成功后将凭据、授权时间和身份写入同一条 KV 记录。授权成功与 `GET /api/buaa-classhopper/v1/iclass/authorization` 均返回 `authorized`、`authorizedAt` 和 `identity`。已授权时，`identity` 包含 `studentName`、`studentId` 和 `academyName`，上游未提供学院时该字段为 `null`。未授权时，`authorizedAt` 和 `identity` 均为 `null`。凭据仅保存在服务端。先更新生产 VPC 节点上的 Go 服务，再发布 Worker 和 Web。
+
 课表、直接签到和预约执行通过统一的 `iclass/node-pool.ts` 选择本地直连或生产 VPC 节点；预约模块的 `checkin-client.ts` 将账号作为选点依据，`checkin-service.ts` 负责请求签名和响应解析，通用 HMAC 签名位于 `src/infrastructure/hmac.ts`。`iclass-checkin` Workflow 到点后以 `{reservationId,attemptId}` 调用 Go 服务的 `POST /internal/checkin-executions`；Go 服务使用只读 API Token 查询预约详情，并在同一 HTTP 响应中返回结果。具体契约见 `docs/RESERVATIONS.md`。
 
 本地开发时，`wrangler.jsonc` 顶层 `vars.ICLASS_SERVICE_BASE_URL` 指向本机 Go 服务（当前 `http://127.0.0.1:8020`）。复制示例文件并将密钥改为与 Go 服务 `ICLASS_SERVICE_SECRET` 相同的值：
