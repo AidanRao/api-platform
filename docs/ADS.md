@@ -48,12 +48,12 @@
 
 BUAA-ClassHopper 的 `profile-bottom` 广告位位于“我的”页北航身份认证卡片下方，后台名称建议“我的页底部广告”，可使用 banner、carousel 或 card。
 
-Web `/app` 页面顶部使用 `buaa-classhopper` 下的独立广告位 `web-schedule-text-banner`，后台名称为「Web 顶部文字横幅」，展示形式选「横幅」。已创建的广告位可在后台编辑名称。该广告位与文字素材专用配对，最多返回一条投放，点击地址可选且仅接受 HTTP 或 HTTPS。课表页可同时展示 `web-schedule-banner` 的图片广告。
+Web `/app` 页面顶部读取 `buaa-classhopper` 的 `web-app-text-banner` 广告位。后台名称建议为「Web 顶部文字横幅」，展示形式选「横幅」，投放时选择文字素材。Web 支持 HTTP 和 HTTPS 点击地址。课表页可同时展示 `web-schedule-banner` 的图片广告。
 
-选择广告位后，素材选择器只列出兼容素材。平台素材列表接口支持 `material=text|image|card`，分页和总数基于筛选结果。
+选择广告位后，素材选择器根据展示形式筛选。平台素材列表接口支持 `slotFormat=banner|carousel|card|splash` 和 `material=text|image|card`，分页和总数基于筛选结果。
 
 - 广告位 `(appId, slotKey)` 唯一，slotKey 使用小写字母、数字，可用单个短横线或下划线分隔，例如 `home-banner`、`announcement_top_banner`，最长 100 字符，`new` 为管理页面保留标识。App 和标识不可修改；没有关联投放时允许修改展示形式，已有投放（包括停用投放）时禁止修改展示形式。
-- `format` 为 `banner`、`carousel`、`card`、`splash`。常规 banner/carousel/splash 使用图片素材，card 使用图文卡片素材。
+- 横幅 `banner` 支持图片或文字素材。轮播 `carousel` 和开屏 `splash` 使用图片素材，图文卡片 `card` 使用图文卡片素材。
 - 非轮播 `maxItems=1`；轮播默认 5，可配置 1–10。轮播由同一广告位上的多条投放组成。
 - 优先级范围 -1000000 到 1000000，越大越优先；相同优先级按创建时间、ID 升序。
 - 活动、投放默认停用。广告位和素材没有启停状态；素材保存即发布，素材类型必须匹配广告位。

@@ -5,8 +5,6 @@ import {
   slotSchema,
   pageSchema,
   placementSchema,
-  isTextBannerSlot,
-  textBannerSlotName,
   type AdSlot,
   type SlotInput,
 } from "../../../../src/features/ads/schema";
@@ -87,7 +85,6 @@ function Editor({ id, initial }: { id: string; initial: AdSlot | null }) {
     enabled: !!form.saved,
   });
   const canChangeFormat = !form.saved || (placements.isSuccess && placements.data.total === 0);
-  const textBanner = isTextBannerSlot(app.id, form.draft.slotKey);
   return (
     <div className="space-y-6">
       <EditorHeader
@@ -132,19 +129,7 @@ function Editor({ id, initial }: { id: string; initial: AdSlot | null }) {
                 value={form.draft.slotKey}
                 placeholder="announcement_top_banner"
                 aria-describedby="slot-key-hint"
-                onChange={(e) => {
-                  const slotKey = e.target.value;
-                  if (isTextBannerSlot(app.id, slotKey)) {
-                    form.edit({
-                      slotKey,
-                      name: form.draft.name.trim() ? form.draft.name : textBannerSlotName,
-                      format: "banner",
-                      maxItems: 1,
-                    });
-                  } else {
-                    form.edit({ slotKey });
-                  }
-                }}
+                onChange={(e) => form.edit({ slotKey: e.target.value })}
               />
             </Field>
             <p id="slot-key-hint" className="text-xs text-muted-foreground">
@@ -158,7 +143,6 @@ function Editor({ id, initial }: { id: string; initial: AdSlot | null }) {
             options={Object.entries(formatNames).map(([value, label]) => ({
               value: value as SlotInput["format"],
               label,
-              disabled: textBanner && value !== "banner",
             }))}
             onChange={(format) =>
               form.edit({ format, maxItems: format === "carousel" ? 5 : 1 })

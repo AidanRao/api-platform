@@ -9,7 +9,7 @@ import {
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { renderAdmin, ok, fail, apps } from "../../test-utils";
-import { creativeMaterial, textBannerSlotKey } from "../../../../src/features/ads/schema";
+import { creativeMaterial, formatSchema, slotMaterials } from "../../../../src/features/ads/schema";
 import type {
   Campaign,
   Creative,
@@ -176,9 +176,9 @@ beforeEach(() => {
           return ok(creative);
         }
         if (creativeListFails) return fail(502, "素材列表加载失败");
-        const material = url.searchParams.get("material");
-        if (material && otherCreative && creativeMaterial(otherCreative) !== creativeMaterial(creative))
-          return ok(page([creative, otherCreative].filter((record) => creativeMaterial(record) === material)));
+        const format = formatSchema.safeParse(url.searchParams.get("slotFormat")).data;
+        if (format && otherCreative && creativeMaterial(otherCreative) !== creativeMaterial(creative))
+          return ok(page([creative, otherCreative].filter((record) => slotMaterials[format].includes(creativeMaterial(record)))));
         if (otherCreative) return ok({
           items: url.searchParams.get("page") === "2" ? [otherCreative] : [creative],
           page: Number(url.searchParams.get("page") ?? 1), pageSize: 20, total: 21,
@@ -232,18 +232,18 @@ describe("advertising administration", () => {
 
   it("previews text creatives and allows only compatible choices for the selected slot", async () => {
     const user = userEvent.setup();
-    slot = { ...slot, slotKey: textBannerSlotKey, name: "课表文字横幅" };
+    slot = { ...slot, slotKey: "web-app-text-banner", name: "Web 顶部文字横幅" };
     const content = { imageUrl: null, presentation: "text" as const, title: "参与问卷", buttonText: "填写", description: "" };
     secondCreative = { ...creative, id: "ADCR-2", name: "文字素材", draft: content,
       published: { ...creative.published!, creativeId: "ADCR-2", content } };
     renderAdmin("/admin/buaa-classhopper/ads/placements/new");
     await user.click(await screen.findByRole("button", { name: "选择广告位" }));
-    await user.click(await screen.findByRole("button", { name: /选择广告位：课表文字横幅/ }));
+    await user.click(await screen.findByRole("button", { name: /选择广告位：Web 顶部文字横幅/ }));
     await user.click(screen.getByRole("button", { name: "选择素材" }));
     const drawer = await screen.findByRole("dialog", { name: "选择素材" });
     const text = await within(drawer).findByRole("button", { name: /选择素材：文字素材/ });
-    expect(within(drawer).queryByRole("button", { name: /选择素材：共享图片/ })).toBeNull();
-    expect(within(drawer).getByText("共 1 条，第 1 页")).toBeTruthy();
+    expect(within(drawer).getByRole("button", { name: /选择素材：共享图片/ })).toBeTruthy();
+    expect(within(drawer).getByText("共 2 条，第 1 页")).toBeTruthy();
     await user.click(text);
     const selected = screen.getByRole("group", { name: "已选素材" });
     expect(within(selected).getByText("参与问卷")).toBeTruthy();

@@ -7,8 +7,7 @@ import {
   placementSchema,
   slotSchema,
   creativeMaterial,
-  slotMaterial,
-  isTextBannerSlot,
+  slotMaterials,
   type Creative,
   type Placement,
   type PlacementInput,
@@ -103,7 +102,6 @@ function Editor({ id, initial }: { id: string; initial: Placement | null }) {
     identifier: (v) => v.id,
   });
   const metrics = usePlacementMetrics(app.id, form.saved?.id ?? null);
-  const textBanner = isTextBannerSlot(app.id, form.draft.slotKey);
   const client = useQueryClient();
   const slotKey = form.draft.slotKey;
   const slot = useQuery({
@@ -152,14 +150,14 @@ function Editor({ id, initial }: { id: string; initial: Placement | null }) {
               setSelectionError(null);
               const selectedCreative = client.getQueryData<Creative>(adKey(null, "creatives", "detail", form.draft.creativeId));
               const compatible = slotKey === form.draft.slotKey ||
-                (selectedCreative && creativeMaterial(selectedCreative) === slotMaterial(selectedSlot));
+                (selectedCreative && slotMaterials[selectedSlot.format].includes(creativeMaterial(selectedCreative)));
               form.edit(compatible ? { slotKey } : { slotKey, creativeId: "" });
             }}
             disabled={form.busy}
           />
           <CreativePicker
             value={form.draft.creativeId}
-            material={slot.data ? slotMaterial(slot.data) : undefined}
+            slotFormat={slot.data?.format}
             onChange={(creativeId) => { setSelectionError(null); form.edit({ creativeId }); }}
             disabled={form.busy || (!!slotKey && !slot.data)}
           />
@@ -167,7 +165,7 @@ function Editor({ id, initial }: { id: string; initial: Placement | null }) {
             <Input
               id="placement-target-url"
               maxLength={2048}
-              placeholder={textBanner ? "https://…" : "https://… 或 buaa-classhopper://…"}
+              placeholder="https://… 或 buaa-classhopper://…"
               value={form.draft.targetUrl ?? ""}
               onChange={(e) => form.edit({ targetUrl: e.target.value || null })}
             />

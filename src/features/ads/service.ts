@@ -6,10 +6,8 @@ import {
   creativePatchSchema,
   slotPatchSchema,
   placementPatchSchema,
-  isTextBannerSlot,
-  textBannerSlotName,
   creativeMaterial,
-  slotMaterial,
+  slotMaterials,
   type CampaignInput,
   type CreativeInput,
   type SlotInput,
@@ -32,9 +30,7 @@ function schedule(value: { startsAt: string | null; endsAt: string | null }) {
   if (value.startsAt && value.endsAt && value.startsAt >= value.endsAt)
     throw new ApiError("结束时间必须晚于开始时间", 400);
 }
-function validateSlot(appId: string, slot: Pick<SlotInput, "slotKey" | "format" | "maxItems">) {
-  if (isTextBannerSlot(appId, slot.slotKey) && slot.format !== "banner")
-    throw new ApiError(`${textBannerSlotName}的展示形式必须为横幅`, 400);
+function validateSlot(slot: Pick<SlotInput, "format" | "maxItems">) {
   if (slot.format !== "carousel" && slot.maxItems !== 1)
     throw new ApiError("非轮播广告位只能返回一条广告", 400);
 }
@@ -107,7 +103,7 @@ export class AdsService {
       ...input,
       maxItems: input.maxItems ?? (input.format === "carousel" ? 5 : 1),
     };
-    validateSlot(appId, next);
+    validateSlot(next);
     const value = await this.repo.createSlot(
       appId,
       next,
@@ -132,7 +128,7 @@ export class AdsService {
           : current.maxItems
       ),
     };
-    validateSlot(appId, next);
+    validateSlot(next);
     const updated = await this.repo.updateSlot(next, this.now().toISOString());
     if (updated) return updated;
     const latest = requireRecord(await this.repo.slot(appId, key));
@@ -149,16 +145,9 @@ export class AdsService {
     requireRecord(activity, "活动");
     const slot = requireRecord(adSlot, "广告位");
     const creative = requireRecord(adCreative, "素材");
-    const textBanner = isTextBannerSlot(appId, slot.slotKey);
     const material = creativeMaterial(creative);
-    if (textBanner && (slot.format !== "banner" || material !== "text"))
-      throw new ApiError("此广告位只接收文字横幅素材", 400);
-    if (!textBanner && material === "text")
-      throw new ApiError(`文字横幅素材只能投放到「${textBannerSlotName}」广告位`, 400);
-    if (slotMaterial(slot) !== material)
+    if (!slotMaterials[slot.format].includes(material))
       throw new ApiError("素材类型与广告位不匹配", 400);
-    if (textBanner && input.targetUrl && !["http:", "https:"].includes(new URL(input.targetUrl).protocol))
-      throw new ApiError("文字横幅的点击地址必须使用 HTTP 或 HTTPS", 400);
     if (input.enabled && creative.publishedVersion === null)
       throw new ApiError("启用投放前请先保存素材", 400);
   }

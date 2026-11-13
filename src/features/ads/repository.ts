@@ -6,8 +6,7 @@ import {
   placementSchema,
   placementFiltersSchema,
   versionSchema,
-  textBannerAppId,
-  textBannerSlotKey,
+  slotMaterials,
   type Campaign,
   type Creative,
   type AdSlot,
@@ -30,13 +29,12 @@ const versionColumns =
 // Check draft content on placement writes and the published snapshot on delivery.
 const material = (type: string, content: string) =>
   `CASE WHEN json_extract(${content}, '$.presentation')='text' THEN 'text' ELSE ${type} END`;
-const compatibleCreative = (content: "c.draft" | "v.content") => `
-  ${material("c.type", content)}=CASE
-    WHEN s.app_id='${textBannerAppId}' AND s.slot_key='${textBannerSlotKey}'
-      THEN CASE WHEN s.format='banner' THEN 'text' END
-    WHEN s.format='card' THEN 'card'
-    ELSE 'image'
-  END`;
+const materialList = (values: readonly string[]) => values.map((value) => `'${value}'`).join(", ");
+const compatibleCreative = (content: "c.draft" | "v.content") => `CASE s.format
+  ${Object.entries(slotMaterials).map(([format, materials]) =>
+    `WHEN '${format}' THEN ${material("c.type", content)} IN (${materialList(materials)})`,
+  ).join("\n  ")}
+END`;
 type Row = Record<string, unknown>;
 const decodeCampaign = (r: Row) =>
   campaignSchema.parse({ ...r, enabled: !!r.enabled });
@@ -167,9 +165,12 @@ export class AdsRepository {
     return row ? decodeCreative(row) : null;
   }
   creatives(q: CreativeQuery) {
+    const conditions = [];
+    if (q.material) conditions.push(`${material("type", "draft")}=?`);
+    if (q.slotFormat) conditions.push(`${material("type", "draft")} IN (${materialList(slotMaterials[q.slotFormat])})`);
     return this.page(
       creativeSelect,
-      q.material ? `${material("type", "draft")}=?` : "1",
+      conditions.join(" AND ") || "1",
       q.material ? [q.material] : [],
       "createdAt DESC,id DESC",
       q,

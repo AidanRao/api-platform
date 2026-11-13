@@ -5,7 +5,7 @@ import { z } from "zod";
 import {
   campaignSchema, creativeSchema, slotSchema, pageSchema,
   type Campaign, type Creative, type AdSlot,
-  slotMaterial,
+  type AdFormat,
 } from "../../../../src/features/ads/schema";
 import { platformClient } from "../../platform/api";
 import { ErrorNotice } from "../../platform/feedback";
@@ -26,7 +26,7 @@ type PickerValue = {
 };
 
 function RecordPicker<T extends { name: string }>({
-  label, scope, resource, schema, keyOf, renderRecord, material,
+  label, scope, resource, schema, keyOf, renderRecord, slotFormat,
   value, onChange, disabled,
 }: Omit<PickerValue, "onChange"> & {
   label: string;
@@ -36,7 +36,7 @@ function RecordPicker<T extends { name: string }>({
   keyOf: (record: T) => string;
   renderRecord: (record: T) => ReactNode;
   onChange: (value: string, record: T) => void;
-  material?: ReturnType<typeof slotMaterial>;
+  slotFormat?: AdFormat;
 }) {
   const [open, setOpen] = useState(false);
   const [page, setPage] = useState(1);
@@ -50,10 +50,10 @@ function RecordPicker<T extends { name: string }>({
     enabled: !!value,
   });
   const records = useQuery({
-    queryKey: adKey(scope, resource, "selector", page, material),
+    queryKey: adKey(scope, resource, "selector", page, slotFormat),
     queryFn: ({ signal }) => {
       const params = new URLSearchParams({ page: String(page), pageSize: "20" });
-      if (material) params.set("material", material);
+      if (slotFormat) params.set("slotFormat", slotFormat);
       return platformClient(`${adBase(scope, resource)}?${params}`, pageSchema(schema), { signal });
     },
     enabled: open,
@@ -214,7 +214,7 @@ export function SlotPicker({ appId, ...props }: Omit<PickerValue, "onChange"> & 
 }) {
   return <RecordPicker {...props} label="广告位" scope={appId} resource="slots" schema={slotSchema} keyOf={(record) => record.slotKey} renderRecord={SlotSummary} />;
 }
-export function CreativePicker({ material, ...props }: PickerValue & { material?: ReturnType<typeof slotMaterial> }) {
-  return <RecordPicker {...props} material={material} label="素材" scope={null} resource="creatives"
+export function CreativePicker(props: PickerValue & { slotFormat?: AdFormat }) {
+  return <RecordPicker {...props} label="素材" scope={null} resource="creatives"
     schema={creativeSchema} keyOf={(record) => record.id} renderRecord={CreativeSummary} />;
 }

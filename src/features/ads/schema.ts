@@ -18,11 +18,14 @@ export const creativeTypeSchema = z.enum(["image", "card"]);
 const creativeMaterialSchema = z.enum(["image", "card", "text"]);
 export const textBannerColorSchema = z.enum(["gray", "blue", "green", "amber", "red", "violet"]);
 export type TextBannerColor = z.infer<typeof textBannerColorSchema>;
-export const textBannerAppId = "buaa-classhopper";
-export const textBannerSlotKey = "web-schedule-text-banner";
-export const textBannerSlotName = "Web 顶部文字横幅";
-export const isTextBannerSlot = (appId: string, slotKey: string) =>
-  appId === textBannerAppId && slotKey === textBannerSlotKey;
+export type AdFormat = z.infer<typeof formatSchema>;
+type CreativeMaterial = z.infer<typeof creativeMaterialSchema>;
+export const slotMaterials: Record<AdFormat, readonly CreativeMaterial[]> = {
+  banner: ["image", "text"],
+  carousel: ["image"],
+  card: ["card"],
+  splash: ["image"],
+};
 export const slotKeySchema = z
   .string()
   .regex(BUSINESS_KEY_PATTERN, "请使用小写字母或数字，可用短横线和下划线分隔")
@@ -161,7 +164,10 @@ export const querySchema = z.object({
   creativeId: id.optional(),
   slotKey: slotKeySchema.optional(),
 });
-export const creativeQuerySchema = querySchema.extend({ material: creativeMaterialSchema.optional() });
+export const creativeQuerySchema = querySchema.extend({
+  material: creativeMaterialSchema.optional(),
+  slotFormat: formatSchema.optional(),
+});
 const metadata = {
   revision: z.number().int().positive(),
   createdAt: z.string(),
@@ -213,7 +219,5 @@ export type CampaignInput = z.infer<typeof campaignCreateSchema>;
 export type CreativeInput = z.infer<typeof creativeCreateSchema>;
 export type CreativeQuery = z.infer<typeof creativeQuerySchema>;
 export const creativeMaterial = (creative: CreativeInput) => creative.draft.presentation ?? creative.type;
-export const slotMaterial = (slot: Pick<AdSlot, "appId" | "slotKey" | "format">) =>
-  isTextBannerSlot(slot.appId, slot.slotKey) ? "text" : slot.format === "card" ? "card" : "image";
 export type SlotInput = z.infer<typeof slotCreateSchema>;
 export type PlacementInput = z.infer<typeof placementCreateSchema>;

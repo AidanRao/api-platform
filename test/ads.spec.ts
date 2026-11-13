@@ -10,7 +10,6 @@ import {
   campaignPatchSchema,
   targetUrlSchema,
   placementFiltersSchema,
-  textBannerSlotKey,
   type AdContent,
   type Campaign,
   type Creative,
@@ -173,6 +172,11 @@ describe("shared ads", () => {
       expect(list.total).toBe(1);
       expect(list.items.map((item) => item.id)).toEqual([id]);
     }
+    const banner = await request(`${base}/creatives?slotFormat=banner&pageSize=1&page=2`).then(read<{ total: number; items: Creative[] }>);
+    expect(banner.total).toBe(2);
+    expect(banner.items.map((item) => item.id)).toEqual([text.id]);
+    const carousel = await request(`${base}/creatives?slotFormat=carousel`).then(read<{ total: number; items: Creative[] }>);
+    expect(carousel.items.map((item) => item.id)).toEqual([photo.id]);
     for (const draft of [
       { imageUrl: image, textColor: "blue" },
       { presentation: "text", title: "填写问卷", backgroundColor: "#ffffff" },
@@ -181,27 +185,22 @@ describe("shared ads", () => {
     }
   });
 
-  it("isolates the Web text banner and picks a single eligible placement by priority", async () => {
+  it("delivers text or image in banner slots and picks a single placement by priority", async () => {
+    const textBannerSlotKey = "web-app-text-banner";
     const activity = await campaign();
     const material = await creative({ draft: { presentation: "text", title: "填写问卷", textColor: "blue" } });
     const photo = await creative();
-    await slot();
+    await slot(undefined, { format: "carousel" });
     await slot("second-app", { slotKey: textBannerSlotKey });
-    expect((await request(`${scoped()}/slots`, "POST", {
-      slotKey: textBannerSlotKey, name: "课表文字横幅", format: "carousel",
-    })).status).toBe(400);
-    await slot(undefined, { slotKey: textBannerSlotKey, name: "课表文字横幅" });
+    await slot(undefined, { slotKey: textBannerSlotKey, name: "Web 顶部文字横幅" });
     const textPlacement = {
       campaignId: activity.id, creativeId: material.id, slotKey: textBannerSlotKey, enabled: true,
     };
-    for (const [path, changes] of [
-      [scoped(), { slotKey: "home" }],
-      [scoped("second-app"), {}],
-      [scoped(), { creativeId: photo.id }],
-      [scoped(), { targetUrl: "buaa-classhopper://announcement/1" }],
-    ] as const) {
-      expect((await request(`${path}/placements`, "POST", { ...textPlacement, ...changes })).status).toBe(400);
-    }
+    expect((await request(`${scoped()}/placements`, "POST", { ...textPlacement, slotKey: "home" })).status).toBe(400);
+    const other = await placement(activity, material, "second-app", { slotKey: textBannerSlotKey });
+    expect((await request(publicUrl("second-app", textBannerSlotKey)).then(read<{ items: unknown[] }>)).items)
+      .toMatchObject([{ placementId: other.id, targetUrl: other.targetUrl }]);
+    await placement(activity, photo, undefined, { slotKey: textBannerSlotKey, priority: -1 });
     const first = await placement(activity, material, undefined, { slotKey: textBannerSlotKey, targetUrl: null });
     const second = await placement(activity, material, undefined, {
       slotKey: textBannerSlotKey, targetUrl: "https://example.com/survey", showAdLabel: false,
