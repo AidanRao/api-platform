@@ -40,7 +40,7 @@
 
 只接受平台图片上传接口返回的地址。图片共享使用现有 `POST /api/admin/media/images`，不新增媒体存储配置。
 
-在后台选择「文字横幅」可发布纯文字素材。API 使用 `type: "image"` 和 `draft.presentation: "text"`，正文填 `title`，操作文字可填 `buttonText`，`imageUrl` 留空。背景和文字可独立指定 `backgroundColor`、`textColor`，接受 Radix 色系 `gray`、`blue`、`green`、`amber`、`red`、`violet`，省略使用默认色。展示样式创建后固定，历史版本保留各自的正文、按钮文案和颜色。
+在后台选择「文字横幅」可发布纯文字素材。API 使用 `type: "image"` 和 `draft.presentation: "text"`，正文填 `title`，操作文字可填 `buttonText`，`imageUrl` 留空。背景和文字可独立指定 `backgroundColor`、`textColor`，使用 `0xAARRGGBB` 格式的 JSON 字符串，例如 `"0xFFF4FBF6"`。后台提供带色点的灰、蓝、绿、琥珀、红、紫预设，选择「默认」时省略对应字段。展示样式创建后固定，历史版本保留各自的正文、按钮文案和颜色。
 
 ## 广告位与投放规则
 

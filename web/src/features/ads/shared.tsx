@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from "react";
 import { ChevronRight } from "lucide-react";
-import { textBannerColors } from "./TextBannerColors";
+import { bannerColorToCss } from "./TextBannerColors";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "react-router";
 import { z } from "zod";
@@ -375,8 +375,8 @@ export function ContentPreview({ content }: { content: AdContent }) {
     return (
       <div className="flex min-h-11 items-center gap-3 rounded-md border px-3 py-2 text-sm"
         style={{
-          backgroundColor: textBannerColors[content.backgroundColor ?? "gray"].backgroundColor,
-          color: textBannerColors[content.textColor ?? "gray"].textColor,
+          backgroundColor: bannerColorToCss(content.backgroundColor ?? "0xFFF9F9F9"),
+          color: bannerColorToCss(content.textColor ?? "0xFF202020"),
         }}>
         <span className="min-w-0 flex-1 [overflow-wrap:anywhere]">{content.title}</span>
         {content.buttonText ? (

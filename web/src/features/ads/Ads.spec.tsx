@@ -214,8 +214,12 @@ describe("advertising administration", () => {
     await user.type(screen.getByLabelText("素材名称"), "满意度调查");
     await user.type(screen.getByLabelText("横幅文案"), "课表体验问卷开放填写");
     await user.type(screen.getByLabelText("按钮文案（可选）"), "参与调查");
-    await user.selectOptions(screen.getByLabelText("背景颜色"), "amber");
-    await user.selectOptions(screen.getByLabelText("文字颜色"), "violet");
+    await user.click(screen.getByRole("combobox", { name: "背景颜色" }));
+    const amber = await screen.findByRole("option", { name: "琥珀色" });
+    expect(amber.querySelector<HTMLElement>('[aria-hidden="true"][style]')?.style.backgroundColor).toBe("rgb(254, 251, 233)");
+    await user.click(amber);
+    await user.click(screen.getByRole("combobox", { name: "文字颜色" }));
+    await user.click(await screen.findByRole("option", { name: "紫色" }));
     expect(screen.getByText("课表体验问卷开放填写")).toBeTruthy();
     expect(screen.getByText("参与调查")).toBeTruthy();
     const preview = screen.getByText("课表体验问卷开放填写").parentElement!;
@@ -224,7 +228,7 @@ describe("advertising administration", () => {
     await user.click(screen.getByRole("button", { name: "保存素材" }));
     await waitFor(() => expect(writes.at(-1)?.body).toMatchObject({
       name: "满意度调查", type: "image",
-      draft: { presentation: "text", imageUrl: null, title: "课表体验问卷开放填写", buttonText: "参与调查", backgroundColor: "amber", textColor: "violet" },
+      draft: { presentation: "text", imageUrl: null, title: "课表体验问卷开放填写", buttonText: "参与调查", backgroundColor: "0xFFFEFBE9", textColor: "0xFF2F265F" },
     }));
     expect(await screen.findByText("当前发布内容 v1")).toBeTruthy();
     expect(screen.queryByText("尚未上传图片")).toBeNull();

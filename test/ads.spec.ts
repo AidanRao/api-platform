@@ -144,17 +144,17 @@ describe("shared ads", () => {
     ]) {
       expect((await request(`${base}/creatives`, "POST", { name: "文字素材", type: "image", draft })).status).toBe(400);
     }
-    const material = await creative({ draft: { presentation: "text", title: "填写问卷", buttonText: "参与", backgroundColor: "amber", textColor: "violet" } });
+    const material = await creative({ draft: { presentation: "text", title: "填写问卷", buttonText: "参与", backgroundColor: "0xFFFEFBE9", textColor: "0xFF2F265F" } });
     expect(material.published?.content).toMatchObject({ presentation: "text", imageUrl: null, title: "填写问卷" });
     const updated = await request(`${base}/creatives/${material.id}`, "PATCH", {
       revision: material.revision,
-      draft: { title: "问卷即将截止", textColor: "blue" },
+      draft: { title: "问卷即将截止", textColor: "0x80113264" },
     }).then(read<Creative>);
     expect(updated.publishedVersion).toBe(2);
-    expect(updated.published?.content).toMatchObject({ presentation: "text", imageUrl: null, title: "问卷即将截止", textColor: "blue" });
+    expect(updated.published?.content).toMatchObject({ presentation: "text", imageUrl: null, title: "问卷即将截止", textColor: "0x80113264" });
     expect(updated.published?.content).not.toHaveProperty("backgroundColor");
     const old = await request(`${base}/creatives/${material.id}/versions/1`).then(read<{ content: AdContent }>);
-    expect(old.content).toMatchObject({ presentation: "text", title: "填写问卷", buttonText: "参与", backgroundColor: "amber", textColor: "violet" });
+    expect(old.content).toMatchObject({ presentation: "text", title: "填写问卷", buttonText: "参与", backgroundColor: "0xFFFEFBE9", textColor: "0xFF2F265F" });
     const photo = await creative();
     expect((await request(`${base}/creatives/${photo.id}`, "PATCH", {
       revision: photo.revision,
@@ -163,7 +163,7 @@ describe("shared ads", () => {
   });
 
   it("filters materials before pagination and restricts color values to text banners", async () => {
-    const text = await creative({ draft: { presentation: "text", title: "填写问卷", backgroundColor: "amber" } });
+    const text = await creative({ draft: { presentation: "text", title: "填写问卷", backgroundColor: "0xFFFEFBE9" } });
     now = new Date(now.getTime() + 1000);
     const photo = await creative();
     const card = await creative({ type: "card" });
@@ -178,8 +178,11 @@ describe("shared ads", () => {
     const carousel = await request(`${base}/creatives?slotFormat=carousel`).then(read<{ total: number; items: Creative[] }>);
     expect(carousel.items.map((item) => item.id)).toEqual([photo.id]);
     for (const draft of [
-      { imageUrl: image, textColor: "blue" },
+      { imageUrl: image, textColor: "0x80113264" },
       { presentation: "text", title: "填写问卷", backgroundColor: "#ffffff" },
+      { presentation: "text", title: "填写问卷", backgroundColor: "blue" },
+      { presentation: "text", title: "填写问卷", textColor: 0xFF113264 },
+      { presentation: "text", title: "填写问卷", textColor: "0xFF113264\n" },
     ]) {
       expect((await request(`${base}/creatives`, "POST", { name: "素材", type: "image", draft })).status).toBe(400);
     }
@@ -188,7 +191,7 @@ describe("shared ads", () => {
   it("delivers text or image in banner slots and picks a single placement by priority", async () => {
     const textBannerSlotKey = "web-app-text-banner";
     const activity = await campaign();
-    const material = await creative({ draft: { presentation: "text", title: "填写问卷", textColor: "blue" } });
+    const material = await creative({ draft: { presentation: "text", title: "填写问卷", textColor: "0x80113264" } });
     const photo = await creative();
     await slot(undefined, { format: "carousel" });
     await slot("second-app", { slotKey: textBannerSlotKey });
@@ -216,7 +219,7 @@ describe("shared ads", () => {
     now = new Date("2026-10-22T01:00:00Z");
     expect((await readItems()).items).toMatchObject([{
       placementId: second.id, targetUrl: "https://example.com/survey", showAdLabel: false,
-      content: { presentation: "text", title: "填写问卷", imageUrl: null, textColor: "blue" },
+      content: { presentation: "text", title: "填写问卷", imageUrl: null, textColor: "0x80113264" },
     }]);
     expect((await delivery()).items).toEqual([]);
 
