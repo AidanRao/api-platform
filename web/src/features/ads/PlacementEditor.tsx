@@ -1,10 +1,15 @@
 import { EditorActions } from "@/components/ui/editor-actions";
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Tabs } from "radix-ui";
 import { useParams, useSearchParams } from "react-router";
 import {
   placementSchema,
+  slotSchema,
+  creativeMaterial,
+  slotMaterial,
+  isTextBannerSlot,
+  type Creative,
   type Placement,
   type PlacementInput,
 } from "../../../../src/features/ads/schema";
@@ -98,6 +103,14 @@ function Editor({ id, initial }: { id: string; initial: Placement | null }) {
     identifier: (v) => v.id,
   });
   const metrics = usePlacementMetrics(app.id, form.saved?.id ?? null);
+  const textBanner = isTextBannerSlot(app.id, form.draft.slotKey);
+  const client = useQueryClient();
+  const slotKey = form.draft.slotKey;
+  const slot = useQuery({
+    queryKey: adKey(app.id, "slots", "detail", slotKey),
+    queryFn: ({ signal }) => platformClient(`${adBase(app.id, "slots")}/${encodeURIComponent(slotKey)}`, slotSchema, { signal }),
+    enabled: !!slotKey,
+  });
   const tabClass = "-mb-px border-b border-transparent px-1 pb-3 text-sm font-medium text-muted-foreground data-[state=active]:border-primary data-[state=active]:text-foreground focus-visible:outline-2 focus-visible:outline-ring disabled:opacity-50";
   return (
     <div className="resource-theme space-y-6">
@@ -135,19 +148,26 @@ function Editor({ id, initial }: { id: string; initial: Placement | null }) {
           <SlotPicker
             appId={app.id}
             value={form.draft.slotKey}
-            onChange={(slotKey) => { setSelectionError(null); form.edit({ slotKey }); }}
+            onChange={(slotKey, selectedSlot) => {
+              setSelectionError(null);
+              const selectedCreative = client.getQueryData<Creative>(adKey(null, "creatives", "detail", form.draft.creativeId));
+              const compatible = slotKey === form.draft.slotKey ||
+                (selectedCreative && creativeMaterial(selectedCreative) === slotMaterial(selectedSlot));
+              form.edit(compatible ? { slotKey } : { slotKey, creativeId: "" });
+            }}
             disabled={form.busy}
           />
           <CreativePicker
             value={form.draft.creativeId}
+            material={slot.data ? slotMaterial(slot.data) : undefined}
             onChange={(creativeId) => { setSelectionError(null); form.edit({ creativeId }); }}
-            disabled={form.busy}
+            disabled={form.busy || (!!slotKey && !slot.data)}
           />
           <PlacementField label="点击地址（可选）" htmlFor="placement-target-url">
             <Input
               id="placement-target-url"
               maxLength={2048}
-              placeholder="https://… 或 buaa-classhopper://…"
+              placeholder={textBanner ? "https://…" : "https://… 或 buaa-classhopper://…"}
               value={form.draft.targetUrl ?? ""}
               onChange={(e) => form.edit({ targetUrl: e.target.value || null })}
             />

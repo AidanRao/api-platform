@@ -1,4 +1,6 @@
 import { useState, type ReactNode } from "react";
+import { ChevronRight } from "lucide-react";
+import { textBannerColors } from "./TextBannerColors";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "react-router";
 import { z } from "zod";
@@ -369,6 +371,22 @@ export function DeleteButton({
   );
 }
 export function ContentPreview({ content }: { content: AdContent }) {
+  if (content.presentation === "text") {
+    return (
+      <div className="flex min-h-11 items-center gap-3 rounded-md border px-3 py-2 text-sm"
+        style={{
+          backgroundColor: textBannerColors[content.backgroundColor ?? "gray"].backgroundColor,
+          color: textBannerColors[content.textColor ?? "gray"].textColor,
+        }}>
+        <span className="min-w-0 flex-1 [overflow-wrap:anywhere]">{content.title}</span>
+        {content.buttonText ? (
+          <span className="max-w-[40%] text-xs font-medium [overflow-wrap:anywhere]">
+            {content.buttonText}
+          </span>
+        ) : <ChevronRight className="size-4 shrink-0" aria-hidden="true" />}
+      </div>
+    );
+  }
   return (
     <div className="space-y-3 rounded-lg border bg-muted/10 p-4">
       {content.imageUrl ? (

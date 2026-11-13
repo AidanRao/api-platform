@@ -6,7 +6,7 @@ import {
   campaignSchema, creativeSchema, slotSchema, type Placement,
 } from "../../../../src/features/ads/schema";
 import { platformClient } from "../../platform/api";
-import { adBase, adKey, pagePath, time } from "./shared";
+import { adBase, adKey, ContentPreview, pagePath, time } from "./shared";
 import { AdStatusBadge } from "./AdStatusBadge";
 import { PlacementActions } from "./PlacementActions";
 
@@ -34,15 +34,17 @@ export function PlacementRow({ placement, disabled }: { placement: Placement; di
       queryFn: ({ signal }) => platformClient(`/ads/campaigns/${encodeURIComponent(placement.campaignId)}`, campaignSchema, { signal }),
     },
   ] });
-  const imageUrl = creative.data?.published?.content.imageUrl ?? null;
+  const content = creative.data?.published?.content;
+  const imageUrl = content?.imageUrl ?? null;
   const failed = creative.isError || slot.isError || campaign.isError;
   return <tr className="border-t">
     <td className="p-3">
       <Link className="group flex min-w-56 max-w-md items-center gap-3" to={`${pagePath(placement.appId, "placements")}/${encodeURIComponent(placement.id)}`}>
-        <Cover key={imageUrl} url={imageUrl} name={creative.data?.name ?? "素材"} />
+        {content?.presentation !== "text" && <Cover key={imageUrl} url={imageUrl} name={creative.data?.name ?? "素材"} />}
         <div className="min-w-0 space-y-1">
           <p className="break-words font-medium underline-offset-4 group-hover:underline">{slot.data?.name ?? (slot.isError ? "广告位信息不可用" : "加载广告位…")}</p>
           <p className="break-words text-xs text-muted-foreground">{creative.data?.name ?? (creative.isPending ? "加载素材…" : "素材信息不可用")}</p>
+          {content?.presentation === "text" && <ContentPreview content={content} />}
         </div>
       </Link>
       {failed && <Button type="button" variant="link" size="sm" className="mt-1 h-auto p-0 text-destructive" onClick={() => {

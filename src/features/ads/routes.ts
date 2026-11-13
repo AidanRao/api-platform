@@ -102,7 +102,7 @@ export function createPlatformAdsRoutes(now: () => Date) {
   router.all("/campaigns", () => methodNotAllowed("GET, POST"));
   router.all("/campaigns/:id", () => methodNotAllowed("GET, PATCH, DELETE"));
   router.get("/creatives", async (c) =>
-    successResponse("获取成功", await service(c, now).repo.creatives(query(c))),
+    successResponse("获取成功", await service(c, now).repo.creatives(parse(schema.creativeQuerySchema, c.req.query()))),
   );
   router.post("/creatives", async (c) => {
     const value = await service(c, now).createCreative(

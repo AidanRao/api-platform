@@ -10,6 +10,8 @@ import {
   campaignPatchSchema,
   targetUrlSchema,
   placementFiltersSchema,
+  textBannerSlotKey,
+  type AdContent,
   type Campaign,
   type Creative,
   type AdSlot,
@@ -136,6 +138,96 @@ beforeEach(async () => {
   now = new Date("2026-10-22T00:00:00.000Z");
 });
 describe("shared ads", () => {
+  it("publishes text banners without images and preserves their presentation on update", async () => {
+    for (const draft of [
+      { presentation: "text", title: "  " },
+      { presentation: "text", title: "填写问卷", imageUrl: image },
+    ]) {
+      expect((await request(`${base}/creatives`, "POST", { name: "文字素材", type: "image", draft })).status).toBe(400);
+    }
+    const material = await creative({ draft: { presentation: "text", title: "填写问卷", buttonText: "参与", backgroundColor: "amber", textColor: "violet" } });
+    expect(material.published?.content).toMatchObject({ presentation: "text", imageUrl: null, title: "填写问卷" });
+    const updated = await request(`${base}/creatives/${material.id}`, "PATCH", {
+      revision: material.revision,
+      draft: { title: "问卷即将截止", textColor: "blue" },
+    }).then(read<Creative>);
+    expect(updated.publishedVersion).toBe(2);
+    expect(updated.published?.content).toMatchObject({ presentation: "text", imageUrl: null, title: "问卷即将截止", textColor: "blue" });
+    expect(updated.published?.content).not.toHaveProperty("backgroundColor");
+    const old = await request(`${base}/creatives/${material.id}/versions/1`).then(read<{ content: AdContent }>);
+    expect(old.content).toMatchObject({ presentation: "text", title: "填写问卷", buttonText: "参与", backgroundColor: "amber", textColor: "violet" });
+    const photo = await creative();
+    expect((await request(`${base}/creatives/${photo.id}`, "PATCH", {
+      revision: photo.revision,
+      draft: { presentation: "text", title: "填写问卷" },
+    })).status).toBe(400);
+  });
+
+  it("filters materials before pagination and restricts color values to text banners", async () => {
+    const text = await creative({ draft: { presentation: "text", title: "填写问卷", backgroundColor: "amber" } });
+    now = new Date(now.getTime() + 1000);
+    const photo = await creative();
+    const card = await creative({ type: "card" });
+    for (const [material, id] of [["text", text.id], ["image", photo.id], ["card", card.id]]) {
+      const list = await request(`${base}/creatives?material=${material}&pageSize=1`).then(read<{ total: number; items: Creative[] }>);
+      expect(list.total).toBe(1);
+      expect(list.items.map((item) => item.id)).toEqual([id]);
+    }
+    for (const draft of [
+      { imageUrl: image, textColor: "blue" },
+      { presentation: "text", title: "填写问卷", backgroundColor: "#ffffff" },
+    ]) {
+      expect((await request(`${base}/creatives`, "POST", { name: "素材", type: "image", draft })).status).toBe(400);
+    }
+  });
+
+  it("isolates the Web text banner and picks a single eligible placement by priority", async () => {
+    const activity = await campaign();
+    const material = await creative({ draft: { presentation: "text", title: "填写问卷", textColor: "blue" } });
+    const photo = await creative();
+    await slot();
+    await slot("second-app", { slotKey: textBannerSlotKey });
+    expect((await request(`${scoped()}/slots`, "POST", {
+      slotKey: textBannerSlotKey, name: "课表文字横幅", format: "carousel",
+    })).status).toBe(400);
+    await slot(undefined, { slotKey: textBannerSlotKey, name: "课表文字横幅" });
+    const textPlacement = {
+      campaignId: activity.id, creativeId: material.id, slotKey: textBannerSlotKey, enabled: true,
+    };
+    for (const [path, changes] of [
+      [scoped(), { slotKey: "home" }],
+      [scoped("second-app"), {}],
+      [scoped(), { creativeId: photo.id }],
+      [scoped(), { targetUrl: "buaa-classhopper://announcement/1" }],
+    ] as const) {
+      expect((await request(`${path}/placements`, "POST", { ...textPlacement, ...changes })).status).toBe(400);
+    }
+    const first = await placement(activity, material, undefined, { slotKey: textBannerSlotKey, targetUrl: null });
+    const second = await placement(activity, material, undefined, {
+      slotKey: textBannerSlotKey, targetUrl: "https://example.com/survey", showAdLabel: false,
+      priority: 5, startsAt: "2026-10-22T01:00:00Z",
+    });
+    expect((await request(`${scoped()}/placements/${first.id}`, "PATCH", {
+      revision: first.revision, slotKey: "home",
+    })).status).toBe(400);
+
+    const url = publicUrl(undefined, textBannerSlotKey);
+    const readItems = () => request(url).then(read<{ items: { placementId: string; content: AdContent }[] }>);
+    expect((await readItems()).items).toMatchObject([{ placementId: first.id, targetUrl: null }]);
+    now = new Date("2026-10-22T01:00:00Z");
+    expect((await readItems()).items).toMatchObject([{
+      placementId: second.id, targetUrl: "https://example.com/survey", showAdLabel: false,
+      content: { presentation: "text", title: "填写问卷", imageUrl: null, textColor: "blue" },
+    }]);
+    expect((await delivery()).items).toEqual([]);
+
+    const repo = new AdsRepository(env.API_PLATFORM_DB);
+    expect(await repo.updatePlacement({ ...second, slotKey: "home" }, now.toISOString())).toBeNull();
+    // A mismatched placement already in storage must not be delivered either.
+    await env.API_PLATFORM_DB.prepare("UPDATE ad_placements SET slot_key=? WHERE id=?").bind("home", second.id).run();
+    expect((await delivery()).items).toEqual([]);
+  });
+
   it("defaults ad labels on and persists per-placement changes in management and delivery", async () => {
     const a = await campaign();
     const c = await creative();

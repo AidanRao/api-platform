@@ -5,6 +5,7 @@ import { z } from "zod";
 import {
   campaignSchema, creativeSchema, slotSchema, pageSchema,
   type Campaign, type Creative, type AdSlot,
+  slotMaterial,
 } from "../../../../src/features/ads/schema";
 import { platformClient } from "../../platform/api";
 import { ErrorNotice } from "../../platform/feedback";
@@ -15,7 +16,7 @@ import {
   SheetHeader, SheetTitle, SheetDescription, SheetFooter,
 } from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
-import { adBase, adKey, formatNames, time } from "./shared";
+import { adBase, adKey, ContentPreview, formatNames, time } from "./shared";
 import { PlacementField } from "./PlacementField";
 
 type PickerValue = {
@@ -25,15 +26,17 @@ type PickerValue = {
 };
 
 function RecordPicker<T extends { name: string }>({
-  label, scope, resource, schema, keyOf, renderRecord,
+  label, scope, resource, schema, keyOf, renderRecord, material,
   value, onChange, disabled,
-}: PickerValue & {
+}: Omit<PickerValue, "onChange"> & {
   label: string;
   scope: string | null;
   resource: string;
   schema: z.ZodType<T>;
   keyOf: (record: T) => string;
   renderRecord: (record: T) => ReactNode;
+  onChange: (value: string, record: T) => void;
+  material?: ReturnType<typeof slotMaterial>;
 }) {
   const [open, setOpen] = useState(false);
   const [page, setPage] = useState(1);
@@ -47,16 +50,21 @@ function RecordPicker<T extends { name: string }>({
     enabled: !!value,
   });
   const records = useQuery({
-    queryKey: adKey(scope, resource, "selector", page),
-    queryFn: ({ signal }) => platformClient(
-      `${adBase(scope, resource)}?page=${page}&pageSize=20`, pageSchema(schema), { signal },
-    ),
+    queryKey: adKey(scope, resource, "selector", page, material),
+    queryFn: ({ signal }) => {
+      const params = new URLSearchParams({ page: String(page), pageSize: "20" });
+      if (material) params.set("material", material);
+      return platformClient(`${adBase(scope, resource)}?${params}`, pageSchema(schema), { signal });
+    },
     enabled: open,
   });
 
   return (
     <PlacementField label={label}>
-      <Sheet open={open} onOpenChange={setOpen}>
+      <Sheet open={open} onOpenChange={(nextOpen) => {
+        if (nextOpen && rich) setPage(1);
+        setOpen(nextOpen);
+      }}>
         <div className={cn("flex gap-3", rich ? "flex-col items-start" : "items-start justify-between")}>
         {value ? (
           <div role="group" aria-label={`已选${label}`} className={cn("min-w-0 flex-1", rich ? "w-full rounded-lg border bg-background p-4" : "py-1.5")}>
@@ -117,7 +125,7 @@ function RecordPicker<T extends { name: string }>({
                   )}
                   onClick={() => {
                     client.setQueryData(adKey(scope, resource, "detail", key), record);
-                    onChange(key);
+                    onChange(key, record);
                     setOpen(false);
                   }}
                 >
@@ -178,15 +186,18 @@ function CreativeImage({ url, name }: { url: string | null; name: string }) {
 
 function CreativeSummary(record: Creative) {
   const content = record.published?.content ?? record.draft;
+  const isText = content.presentation === "text";
   const changed = record.published && JSON.stringify(record.draft) !== JSON.stringify(record.published.content);
   return <div className="flex flex-col gap-4 sm:flex-row">
-    <CreativeImage key={content.imageUrl ?? "empty"} url={content.imageUrl} name={record.name} />
+    {!isText && <CreativeImage key={content.imageUrl ?? "empty"} url={content.imageUrl} name={record.name} />}
     <div className="min-w-0 flex-1 space-y-2">
       <p className="break-words font-medium">{record.name}</p>
-      <div className="flex flex-wrap gap-1.5"><Badge variant="secondary">{record.type === "card" ? "图文卡片" : "图片"}</Badge><Badge variant="outline">{record.publishedVersion ? `已发布 v${record.publishedVersion}` : "未发布"}</Badge>{changed && <Badge variant="outline">有未发布更改</Badge>}</div>
-      {content.title && <p className="break-words text-sm font-medium">{content.title}</p>}
-      {content.description && <p className="whitespace-pre-wrap break-words text-sm text-muted-foreground">{content.description}</p>}
-      {content.buttonText && <Badge variant="outline">按钮：{content.buttonText}</Badge>}
+      <div className="flex flex-wrap gap-1.5"><Badge variant="secondary">{isText ? "文字横幅" : record.type === "card" ? "图文卡片" : "图片"}</Badge><Badge variant="outline">{record.publishedVersion ? `已发布 v${record.publishedVersion}` : "未发布"}</Badge>{changed && <Badge variant="outline">有未发布更改</Badge>}</div>
+      {isText ? <ContentPreview content={content} /> : <>
+        {content.title && <p className="break-words text-sm font-medium">{content.title}</p>}
+        {content.description && <p className="whitespace-pre-wrap break-words text-sm text-muted-foreground">{content.description}</p>}
+        {content.buttonText && <Badge variant="outline">按钮：{content.buttonText}</Badge>}
+      </>}
       {!record.published && <p className="text-xs text-muted-foreground">请先保存此素材，再启用投放。</p>}
       {changed && <p className="text-xs text-muted-foreground">预览为当前发布内容，保存素材后将更新投放。</p>}
       <RecordMeta id={record.id} updatedAt={record.updatedAt} />
@@ -197,9 +208,13 @@ function CreativeSummary(record: Creative) {
 export function CampaignPicker(props: PickerValue) {
   return <RecordPicker {...props} label="活动" scope={null} resource="campaigns" schema={campaignSchema} keyOf={(record) => record.id} renderRecord={CampaignSummary} />;
 }
-export function SlotPicker({ appId, ...props }: PickerValue & { appId: string }) {
+export function SlotPicker({ appId, ...props }: Omit<PickerValue, "onChange"> & {
+  appId: string;
+  onChange: (value: string, slot: AdSlot) => void;
+}) {
   return <RecordPicker {...props} label="广告位" scope={appId} resource="slots" schema={slotSchema} keyOf={(record) => record.slotKey} renderRecord={SlotSummary} />;
 }
-export function CreativePicker(props: PickerValue) {
-  return <RecordPicker {...props} label="素材" scope={null} resource="creatives" schema={creativeSchema} keyOf={(record) => record.id} renderRecord={CreativeSummary} />;
+export function CreativePicker({ material, ...props }: PickerValue & { material?: ReturnType<typeof slotMaterial> }) {
+  return <RecordPicker {...props} material={material} label="素材" scope={null} resource="creatives"
+    schema={creativeSchema} keyOf={(record) => record.id} renderRecord={CreativeSummary} />;
 }

@@ -6,6 +6,8 @@ import {
   placementSchema,
   placementFiltersSchema,
   versionSchema,
+  textBannerAppId,
+  textBannerSlotKey,
   type Campaign,
   type Creative,
   type AdSlot,
@@ -13,6 +15,7 @@ import {
   type AdQuery,
   type CampaignInput,
   type CreativeInput,
+  type CreativeQuery,
   type SlotInput,
   type PlacementInput,
 } from "./schema";
@@ -24,6 +27,16 @@ const slotColumns = `app_id AS appId, slot_key AS slotKey, name, format, max_ite
 const placementColumns = `id, campaign_id AS campaignId, app_id AS appId, slot_key AS slotKey, creative_id AS creativeId, target_url AS targetUrl, show_ad_label AS showAdLabel, priority, enabled, starts_at AS startsAt, ends_at AS endsAt, ${meta}`;
 const versionColumns =
   "creative_id AS creativeId, version, content, published_at AS publishedAt";
+// Check draft content on placement writes and the published snapshot on delivery.
+const material = (type: string, content: string) =>
+  `CASE WHEN json_extract(${content}, '$.presentation')='text' THEN 'text' ELSE ${type} END`;
+const compatibleCreative = (content: "c.draft" | "v.content") => `
+  ${material("c.type", content)}=CASE
+    WHEN s.app_id='${textBannerAppId}' AND s.slot_key='${textBannerSlotKey}'
+      THEN CASE WHEN s.format='banner' THEN 'text' END
+    WHEN s.format='card' THEN 'card'
+    ELSE 'image'
+  END`;
 type Row = Record<string, unknown>;
 const decodeCampaign = (r: Row) =>
   campaignSchema.parse({ ...r, enabled: !!r.enabled });
@@ -153,11 +166,11 @@ export class AdsRepository {
     ]).first<Row>();
     return row ? decodeCreative(row) : null;
   }
-  creatives(q: AdQuery) {
+  creatives(q: CreativeQuery) {
     return this.page(
       creativeSelect,
-      "1",
-      [],
+      q.material ? `${material("type", "draft")}=?` : "1",
+      q.material ? [q.material] : [],
       "createdAt DESC,id DESC",
       q,
       decodeCreative,
@@ -336,7 +349,7 @@ export class AdsRepository {
   // References and eligibility are checked again within the write statement, avoiding read/write races.
   private eligibility = `EXISTS(SELECT 1 FROM ad_campaigns WHERE id=?) AND EXISTS(
     SELECT 1 FROM ad_slots s JOIN ad_creatives c ON c.id=? WHERE s.app_id=? AND s.slot_key=?
-    AND c.type=CASE WHEN s.format='card' THEN 'card' ELSE 'image' END AND (?=0 OR c.published_version IS NOT NULL))`;
+    AND ${compatibleCreative("c.draft")} AND (?=0 OR c.published_version IS NOT NULL))`;
   async createPlacement(appId: string, v: PlacementInput, now: string) {
     const r = await this.statement(
       `INSERT INTO ad_placements(id,campaign_id,app_id,slot_key,creative_id,target_url,show_ad_label,priority,enabled,starts_at,ends_at,created_at,updated_at)
@@ -438,7 +451,7 @@ export class AdsRepository {
         FROM ad_placements p JOIN ad_campaigns a ON a.id=p.campaign_id JOIN ad_slots s ON s.app_id=p.app_id AND s.slot_key=p.slot_key
         JOIN ad_creatives c ON c.id=p.creative_id JOIN ad_creative_versions v ON v.creative_id=c.id AND v.version=c.published_version
         WHERE p.app_id=? AND p.slot_key=? AND p.enabled=1 AND a.enabled=1
-        AND c.type=CASE WHEN s.format='card' THEN 'card' ELSE 'image' END
+        AND ${compatibleCreative("v.content")}
         AND (a.starts_at IS NULL OR a.starts_at<=?) AND (a.ends_at IS NULL OR a.ends_at>?)
         AND (p.starts_at IS NULL OR p.starts_at<=?) AND (p.ends_at IS NULL OR p.ends_at>?)
         ORDER BY p.priority DESC,p.created_at,p.id LIMIT COALESCE((SELECT max_items FROM ad_slots WHERE app_id=? AND slot_key=?),1)`,

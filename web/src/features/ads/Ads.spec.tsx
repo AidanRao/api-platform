@@ -9,6 +9,7 @@ import {
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { renderAdmin, ok, fail, apps } from "../../test-utils";
+import { creativeMaterial, textBannerSlotKey } from "../../../../src/features/ads/schema";
 import type {
   Campaign,
   Creative,
@@ -169,7 +170,15 @@ beforeEach(() => {
         return ok(placement);
       }
       if (path === "/api/admin/ads/creatives") {
+        if (init?.method === "POST") {
+          creative = { ...creative, ...body };
+          creative.published = { ...creative.published!, content: creative.draft };
+          return ok(creative);
+        }
         if (creativeListFails) return fail(502, "素材列表加载失败");
+        const material = url.searchParams.get("material");
+        if (material && otherCreative && creativeMaterial(otherCreative) !== creativeMaterial(creative))
+          return ok(page([creative, otherCreative].filter((record) => creativeMaterial(record) === material)));
         if (otherCreative) return ok({
           items: url.searchParams.get("page") === "2" ? [otherCreative] : [creative],
           page: Number(url.searchParams.get("page") ?? 1), pageSize: 20, total: 21,
@@ -196,6 +205,52 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 describe("advertising administration", () => {
+  it("creates and previews a text banner without showing image controls", async () => {
+    const user = userEvent.setup();
+    renderAdmin("/admin/ads/creatives/new");
+    await user.click(await screen.findByRole("radio", { name: "文字横幅" }));
+    expect(screen.queryByLabelText("素材图片")).toBeNull();
+    expect(screen.queryByLabelText("描述")).toBeNull();
+    await user.type(screen.getByLabelText("素材名称"), "满意度调查");
+    await user.type(screen.getByLabelText("横幅文案"), "课表体验问卷开放填写");
+    await user.type(screen.getByLabelText("按钮文案（可选）"), "参与调查");
+    await user.selectOptions(screen.getByLabelText("背景颜色"), "amber");
+    await user.selectOptions(screen.getByLabelText("文字颜色"), "violet");
+    expect(screen.getByText("课表体验问卷开放填写")).toBeTruthy();
+    expect(screen.getByText("参与调查")).toBeTruthy();
+    const preview = screen.getByText("课表体验问卷开放填写").parentElement!;
+    expect(preview.style.backgroundColor).toBe("rgb(254, 251, 233)");
+    expect(preview.style.color).toBe("rgb(47, 38, 95)");
+    await user.click(screen.getByRole("button", { name: "保存素材" }));
+    await waitFor(() => expect(writes.at(-1)?.body).toMatchObject({
+      name: "满意度调查", type: "image",
+      draft: { presentation: "text", imageUrl: null, title: "课表体验问卷开放填写", buttonText: "参与调查", backgroundColor: "amber", textColor: "violet" },
+    }));
+    expect(await screen.findByText("当前发布内容 v1")).toBeTruthy();
+    expect(screen.queryByText("尚未上传图片")).toBeNull();
+  });
+
+  it("previews text creatives and allows only compatible choices for the selected slot", async () => {
+    const user = userEvent.setup();
+    slot = { ...slot, slotKey: textBannerSlotKey, name: "课表文字横幅" };
+    const content = { imageUrl: null, presentation: "text" as const, title: "参与问卷", buttonText: "填写", description: "" };
+    secondCreative = { ...creative, id: "ADCR-2", name: "文字素材", draft: content,
+      published: { ...creative.published!, creativeId: "ADCR-2", content } };
+    renderAdmin("/admin/buaa-classhopper/ads/placements/new");
+    await user.click(await screen.findByRole("button", { name: "选择广告位" }));
+    await user.click(await screen.findByRole("button", { name: /选择广告位：课表文字横幅/ }));
+    await user.click(screen.getByRole("button", { name: "选择素材" }));
+    const drawer = await screen.findByRole("dialog", { name: "选择素材" });
+    const text = await within(drawer).findByRole("button", { name: /选择素材：文字素材/ });
+    expect(within(drawer).queryByRole("button", { name: /选择素材：共享图片/ })).toBeNull();
+    expect(within(drawer).getByText("共 1 条，第 1 页")).toBeTruthy();
+    await user.click(text);
+    const selected = screen.getByRole("group", { name: "已选素材" });
+    expect(within(selected).getByText("参与问卷")).toBeTruthy();
+    expect(within(selected).getByText("填写")).toBeTruthy();
+    expect(within(selected).queryByText("暂无图片")).toBeNull();
+  });
+
   it("saves and restores the ad label switch for a placement", async () => {
     const user = userEvent.setup();
     const { router } = renderAdmin("/admin/buaa-classhopper/ads/placements/ADPL-1");
@@ -388,7 +443,7 @@ describe("advertising administration", () => {
     await screen.findByText("素材已保存并发布");
     expect(creative.published!.content.title).toBe("新标题");
     expect(creative.draft.title).toBe("新标题");
-    expect(await screen.findByText(/^v2 ·/)).toBeTruthy();
+    expect(await screen.findByText(/^v2，/)).toBeTruthy();
     expect(writes).toHaveLength(1);
     expect(writes[0]!.url).toBe("/api/admin/ads/creatives/ADCR-1");
     expect(writes[0]!.body).not.toHaveProperty("type");

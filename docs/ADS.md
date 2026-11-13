@@ -40,14 +40,20 @@
 
 只接受平台图片上传接口返回的地址。图片共享使用现有 `POST /api/admin/media/images`，不新增媒体存储配置。
 
+在后台选择「文字横幅」可发布纯文字素材。API 使用 `type: "image"` 和 `draft.presentation: "text"`，正文填 `title`，操作文字可填 `buttonText`，`imageUrl` 留空。背景和文字可独立指定 `backgroundColor`、`textColor`，接受 Radix 色系 `gray`、`blue`、`green`、`amber`、`red`、`violet`，省略使用默认色。展示样式创建后固定，历史版本保留各自的正文、按钮文案和颜色。
+
 ## 广告位与投放规则
 
 投放编辑页的“广告标识”可配置是否显示「广告」标识。`showAdLabel` 为布尔值，创建时默认 `true`，PATCH 省略时保留原值；公开接口在每个 `items[]` 上返回此字段，允许同一轮播中的不同投放分别配置。客户端遇到旧接口省略该字段时应按 `true` 处理。
 
 BUAA-ClassHopper 的 `profile-bottom` 广告位位于“我的”页北航身份认证卡片下方，后台名称建议“我的页底部广告”，可使用 banner、carousel 或 card。
 
+Web `/app` 页面顶部使用 `buaa-classhopper` 下的独立广告位 `web-schedule-text-banner`，后台名称为「Web 顶部文字横幅」，展示形式选「横幅」。已创建的广告位可在后台编辑名称。该广告位与文字素材专用配对，最多返回一条投放，点击地址可选且仅接受 HTTP 或 HTTPS。课表页可同时展示 `web-schedule-banner` 的图片广告。
+
+选择广告位后，素材选择器只列出兼容素材。平台素材列表接口支持 `material=text|image|card`，分页和总数基于筛选结果。
+
 - 广告位 `(appId, slotKey)` 唯一，slotKey 使用小写字母、数字，可用单个短横线或下划线分隔，例如 `home-banner`、`announcement_top_banner`，最长 100 字符，`new` 为管理页面保留标识。App 和标识不可修改；没有关联投放时允许修改展示形式，已有投放（包括停用投放）时禁止修改展示形式。
-- `format` 为 `banner`、`carousel`、`card`、`splash`。图片展示形式 banner/carousel/splash 使用 `image` 类型素材，card 使用 `card` 素材。
+- `format` 为 `banner`、`carousel`、`card`、`splash`。常规 banner/carousel/splash 使用图片素材，card 使用图文卡片素材。
 - 非轮播 `maxItems=1`；轮播默认 5，可配置 1–10。轮播由同一广告位上的多条投放组成。
 - 优先级范围 -1000000 到 1000000，越大越优先；相同优先级按创建时间、ID 升序。
 - 活动、投放默认停用。广告位和素材没有启停状态；素材保存即发布，素材类型必须匹配广告位。
